@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-10-30T07:30:47.666112+00:00",
+  "total_time_seconds": 215.67,
+  "results": {
+    "Test 1: Discovery": "SUCCESS (15 candidates)",
+    "Test 2: Harvester & Zero-Token Pre-filtering": "SUCCESS",
+    "Test 3: LLM Multi-Key Pools": "SUCCESS (Groq + Gemini Live Verified)",
+    "Test 4: Verification & MX": "SUCCESS",
+    "Test 5: 100-Point Scoring Model": "SUCCESS",
+    "Test 6: Outreach Angle Agent": "SUCCESS",
+    "Test 7: 90-Day Cooldown & SQLite Memory": "SUCCESS",
+    "Test 8: End-to-End Campaign": "SUCCESS (3 leads processed)",
+    "Test 9: Exports (CSV & Excel)": "SUCCESS",
+    "Test 10: FastAPI & Frontend": "SUCCESS"
+  },
+  "issues_found": [],
+  "overall_status": "PASSED"
+}

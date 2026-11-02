@@ -1,0 +1,41 @@
+{
+  "test_campaigns": [
+    {
+      "prompt": "Find 20 Cold Email & Local SEO agencies in Austin & Dallas",
+      "expected_agency_types": ["cold_email", "local_seo"],
+      "expected_geography": ["Austin", "Dallas"]
+    }
+  ],
+  "benchmark_leads": [
+    {
+      "type": "b2b_agency",
+      "business_name": "Apex Outbound Specialists",
+      "website": "apexoutbound.io",
+      "html_content": "We run high-converting cold email lead generation for B2B SaaS companies. Founded by Marcus Vance.",
+      "expected_is_agency": true,
+      "expected_type": "cold_email",
+      "expected_niche": "B2B SaaS",
+      "expected_score_min": 75
+    },
+    {
+      "type": "local_seo_agency",
+      "business_name": "Local Dentist Boost",
+      "website": "localdentistboost.com",
+      "html_content": "We help cosmetic dentists rank on Google Map Pack and manage local directory citations. Elena Rostova, Director.",
+      "expected_is_agency": true,
+      "expected_type": "local_seo",
+      "expected_niche": "cosmetic dentists",
+      "expected_score_min": 70
+    },
+    {
+      "type": "non_icp_b2c",
+      "business_name": "Dave's 24/7 Emergency Plumbing",
+      "website": "davesemergencyplumbing.com",
+      "html_content": "Clogged toilets, burst pipes, and water heater repair in Austin, Texas. Call 512-555-0101.",
+      "expected_is_agency": false,
+      "expected_type": "non_icp",
+      "expected_score_max": 0
+    }
+  ]
+}
+

@@ -1,0 +1,31 @@
+sources:
+  - id: "google_maps"
+    name: "Google Maps Local Business Adapter"
+    source_type: "maps"
+    permitted_access_method: "places_api_or_search"
+    coverage: "Global / Local Metro Areas"
+    reliability_score: 0.92
+    freshness: "Real-time"
+    rate_limit: "60 requests/min"
+    description: "Finds local Digital Marketing, SEO, Web Design, and Lead Gen agencies by city and category."
+
+  - id: "b2b_directories"
+    name: "B2B Agency Directory Adapter"
+    source_type: "directory"
+    permitted_access_method: "public_html_extract"
+    coverage: "US, UK, CA, AU, EU"
+    reliability_score: 0.95
+    freshness: "Monthly"
+    rate_limit: "30 requests/min"
+    description: "Extracts verified agency profiles, focus percentages, client niches, and minimum budget sizes."
+
+  - id: "search_footprints"
+    name: "High-Intent Search API Adapter"
+    source_type: "search"
+    permitted_access_method: "search_api"
+    coverage: "Global"
+    reliability_score: 0.88
+    freshness: "Real-time"
+    rate_limit: "40 requests/min"
+    description: "Queries search APIs using footprints like 'cold email agency case study' or 'local SEO for contractors'."
+
