@@ -22,6 +22,10 @@ services:
       - key: DATABASE_URL
         value: sqlite:///./lead_gen.db
 
+      # Webshare Rotating Proxies (Automatic IP failover & anti-block)
+      - key: WEBSHARE_PROXIES
+        value: "45.38.107.97:6014:ndmcilxj:itztvi7o8gz9;64.137.96.74:6641:ndmcilxj:itztvi7o8gz9;198.23.243.226:6361:ndmcilxj:itztvi7o8gz9;38.154.185.97:6370:ndmcilxj:itztvi7o8gz9;84.247.60.125:6095:ndmcilxj:itztvi7o8gz9;191.96.254.138:6185:ndmcilxj:itztvi7o8gz9;198.46.161.42:5092:ndmcilxj:itztvi7o8gz9;64.137.10.153:5803:ndmcilxj:itztvi7o8gz9;104.164.49.38:7693:ndmcilxj:itztvi7o8gz9;23.26.71.145:5628:ndmcilxj:itztvi7o8gz9"
+
       # Groq API Keys (Configure these in your Render Environment Variables)
       - key: GROQ_API_KEY_1
         sync: false

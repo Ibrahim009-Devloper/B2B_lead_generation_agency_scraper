@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 from ddgs import DDGS
 from adapters.base import SourceAdapter, RawLeadCandidate
+from core.proxy_rotator import proxy_rotator
 
 logger = logging.getLogger("SearchApiAdapter")
 
@@ -86,7 +87,8 @@ class SearchApiAdapter(SourceAdapter):
             try:
                 encoded_q = urllib.parse.quote(query)
                 bing_url = f"https://www.bing.com/search?q={encoded_q}&setlang=en-US&first={start_idx}"
-                resp = self.session.get(bing_url, timeout=5.0)
+                proxies = proxy_rotator.get_proxies_dict()
+                resp = self.session.get(bing_url, proxies=proxies, timeout=6.0)
                 if resp.status_code != 200:
                     continue
 

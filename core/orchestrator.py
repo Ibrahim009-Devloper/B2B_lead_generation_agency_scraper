@@ -251,9 +251,12 @@ class MasterOrchestrator:
             if any(w in clean_name.lower() for w in ["best ", "top ", "list of ", "agencies in ", "companies in ", "services in "]):
                 clean_name = self.enricher._format_domain_brand(website)
 
-            # ZERO-EMAIL DROP RULE (user requirement: "email sara kono lead nibe na")
+            # ZERO-EMAIL & PRE-VERIFIER DROP RULE (0 Token Cost)
             if enrichment.zero_token_rejected or not enrichment.extracted_email:
                 rec_reason = enrichment.non_agency_reason or "Zero-Email Drop: No deliverable email found on website"
+                is_layer1_drop = "Layer 1" in rec_reason or not enrichment.is_agency
+                db_status = "rejected_layer1_preverifier" if is_layer1_drop else "rejected_no_email_zero_token"
+                
                 rej_lead = LeadRecord(
                     campaign_id=str(campaign_id),
                     business_name=clean_name,
@@ -266,10 +269,13 @@ class MasterOrchestrator:
                     target_verification_status="CONTACT_RESEARCH_REQUIRED" if enrichment.is_agency else (enrichment.target_verification_status or "REJECTED")
                 )
                 with state_lock:
-                    self.repo.record_scraped_domain(dom, status="rejected_no_email_zero_token")
+                    self.repo.record_scraped_domain(dom, status=db_status)
                     all_campaign_records.append(rej_lead)
                 if on_event:
-                    on_event("Harvester Agent", f"Dropped {cand.business_name} ({dom}) - no email found on site (0 tokens burned).")
+                    if is_layer1_drop:
+                        on_event("Harvester Agent", f"Dropped {cand.business_name} ({dom}) - Layer 1 filter: {rec_reason} (0 tokens burned).")
+                    else:
+                        on_event("Harvester Agent", f"Dropped {cand.business_name} ({dom}) - no valid email on site (0 tokens burned).")
                 return None
 
             if on_event:

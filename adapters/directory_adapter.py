@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from adapters.base import SourceAdapter, RawLeadCandidate
 from pipeline.normalizer import normalize_domain, is_valid_agency_domain
 from core.database import LeadRepository
+from core.proxy_rotator import proxy_rotator
 
 logger = logging.getLogger("DirectoryAdapter")
 logger.setLevel(logging.INFO)
@@ -80,7 +81,10 @@ class DirectoryAdapter(SourceAdapter):
                 page_url = f"{base_url}?page={p}" if p > 1 else base_url
 
                 try:
-                    resp = self.session.get(page_url, timeout=4.0)
+                    resp = proxy_rotator.execute_request(page_url, timeout=12.0)
+                    if resp.status_code in (403, 429):
+                        logger.debug(f"DesignRush returned {resp.status_code}. Skipping category {cat_key}.")
+                        break
                     if resp.status_code == 404:
                         self.repo.set_crawl_page(cat_key, 1)
                         break
@@ -174,7 +178,7 @@ class DirectoryAdapter(SourceAdapter):
                 page_url = f"{base_url}?page={p}" if p > 0 else base_url
 
                 try:
-                    resp = self.session.get(page_url, headers=headers, timeout=4.0)
+                    resp = proxy_rotator.execute_request(page_url, headers=headers, timeout=12.0)
                     if resp.status_code in (403, 429):
                         logger.debug(f"The Manifest returned {resp.status_code}. Skipping {cat_key}.")
                         break
@@ -244,7 +248,7 @@ class DirectoryAdapter(SourceAdapter):
                     if profile_slugs and len(candidates) < limit:
                         def _fetch_tm_profile(slug: str) -> Optional[RawLeadCandidate]:
                             try:
-                                p_resp = requests.get(f"https://themanifest.com{slug}", impersonate="safari15_5", timeout=3.5)
+                                p_resp = proxy_rotator.execute_request(f"https://themanifest.com{slug}", timeout=12.0)
                                 if p_resp.status_code != 200:
                                     return None
                                 p_soup = BeautifulSoup(p_resp.text, "html.parser")
@@ -333,7 +337,7 @@ class DirectoryAdapter(SourceAdapter):
                 page_url = f"{base_url}?page={p}" if p > 1 else base_url
 
                 try:
-                    resp = self.session.get(page_url, timeout=8)
+                    resp = proxy_rotator.execute_request(page_url, timeout=12.0)
                     if resp.status_code == 404:
                         self.repo.set_crawl_page(cat_key, 1)
                         break
@@ -350,7 +354,7 @@ class DirectoryAdapter(SourceAdapter):
                     def _fetch_gf_profile(comp_rel: str) -> Optional[RawLeadCandidate]:
                         full_profile_url = f"https://www.goodfirms.co{comp_rel}"
                         try:
-                            p_resp = requests.get(full_profile_url, impersonate="safari15_5", timeout=3.5)
+                            p_resp = proxy_rotator.execute_request(full_profile_url, timeout=12.0)
                             if p_resp.status_code != 200:
                                 return None
                             p_soup = BeautifulSoup(p_resp.text, "html.parser")
@@ -457,7 +461,7 @@ class DirectoryAdapter(SourceAdapter):
                 cat_url = f"{base_url}?page={p}" if p > 1 else base_url
 
                 try:
-                    resp = self.session.get(cat_url, timeout=8)
+                    resp = proxy_rotator.execute_request(cat_url, timeout=12.0)
                     if resp.status_code == 404:
                         self.repo.set_crawl_page(cat_key, 1)
                         break
@@ -473,7 +477,7 @@ class DirectoryAdapter(SourceAdapter):
 
                     def _fetch_sortlist_profile(slug: str) -> Optional[RawLeadCandidate]:
                         try:
-                            p_resp = requests.get(f"https://www.sortlist.com{slug}", impersonate="safari15_5", timeout=3.5)
+                            p_resp = proxy_rotator.execute_request(f"https://www.sortlist.com{slug}", timeout=12.0)
                             if p_resp.status_code != 200:
                                 return None
                             p_soup = BeautifulSoup(p_resp.text, "html.parser")
@@ -481,11 +485,18 @@ class DirectoryAdapter(SourceAdapter):
                             biz_name = h1.get_text(strip=True) if h1 else slug.replace("/agency/", "").replace("-", " ").title()
 
                             ext_site = None
-                            for a in p_soup.find_all("a", href=True):
-                                h = a["href"]
-                                if h.startswith("http") and not any(x in h for x in ["sortlist.com", "google.com", "linkedin.com", "facebook.com", "instagram.com"]):
-                                    ext_site = h
-                                    break
+                            # Priority 1: Direct JSON attribute from Sortlist Next.js data
+                            site_match = re.search(r'"website"\s*:\s*"(https?://[^"]+)"', p_resp.text)
+                            if site_match:
+                                ext_site = site_match.group(1).replace("\\u002F", "/").replace("\\/", "/")
+
+                            # Priority 2: Fallback to HTML anchor tags
+                            if not ext_site:
+                                for a in p_soup.find_all("a", href=True):
+                                    h = a["href"]
+                                    if h.startswith("http") and not any(x in h for x in ["sortlist.com", "google.com", "linkedin.com", "facebook.com", "instagram.com"]):
+                                        ext_site = h
+                                        break
 
                             if not ext_site:
                                 return None
@@ -548,7 +559,7 @@ class DirectoryAdapter(SourceAdapter):
 
         url = slug_or_url if slug_or_url.startswith("http") else f"https://clutch.co/profile/{slug_or_url}"
         try:
-            resp = self.session.get(url, timeout=6)
+            resp = proxy_rotator.execute_request(url, timeout=12.0)
             if resp.status_code in (403, 429):
                 logger.warning(f"Clutch blocked with HTTP {resp.status_code}. Setting clutch_blocked=True.")
                 self.clutch_blocked = True

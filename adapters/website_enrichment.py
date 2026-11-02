@@ -17,6 +17,7 @@ import httpx
 from core.llm_router import llm_router, TaskType
 from core.schemas import AgencyType
 from pipeline.normalizer import normalize_domain
+from core.proxy_rotator import proxy_rotator
 
 logger = logging.getLogger("WebsiteEnrichment")
 
@@ -35,12 +36,26 @@ NEGATIVE_DOMAIN_KEYWORDS = [
 
 # Strict ICP Lock: Mandatory B2B Lead Gen & Outbound Sales Signals
 MANDATORY_B2B_LEADGEN_SIGNALS = [
+    # English Outbound Terms
     "lead generation", "b2b lead generation", "appointment setting", "appointment",
     "cold email", "cold calling", "outbound sales", "outbound", "sdr as a service", "sdr",
     "sales pipeline", "account-based marketing", "abm", "demand generation", "demand gen",
     "prospecting", "b2b outreach", "lead gen", "sales development", "book meetings",
     "sales meetings", "outreach", "b2b", "qualified leads", "b2b leads", "sales prospecting",
-    "outbound marketing", "email outreach", "b2b sales"
+    "outbound marketing", "email outreach", "b2b sales",
+    # Outbound Tech Stack Signals (Agencies mentioning these are 100% outbound cold outreach agencies)
+    "lemlist", "smartlead", "instantly.ai", "waalaxy", "sales navigator", "salesloft", "outreach.io",
+    # French Outbound Terms (Sortlist France/Belgium/Switzerland)
+    "prospection", "génération de leads", "generation de leads", "rdv qualifiés", "rdv qualifies",
+    "prise de rendez-vous", "prospection multicanale", "prospection commerciale", "cold emailing", "prospection b2b",
+    # German Outbound Terms (Sortlist Germany/Austria/Switzerland)
+    "leadgenerierung", "kaltakquise", "terminvereinbarung", "b2b-vertrieb", "vertriebsauslagerung",
+    "neukundengewinnung", "terminakquise", "outbound-vertrieb",
+    # Spanish Outbound Terms (Sortlist Spain/LatAm)
+    "generación de leads", "generacion de leads", "prospección", "prospeccion",
+    "concertación de citas", "concertacion de citas", "desarrollo de ventas",
+    # Italian Outbound Terms (Sortlist Italy)
+    "generazione di lead", "acquisizione clienti", "fissare appuntamenti", "presa appuntamenti"
 ]
 
 NON_ICP_SERVICE_KEYWORDS = [
@@ -206,13 +221,27 @@ class WebsiteEnrichmentAgent:
 
         if HAS_CURL_CFFI:
             try:
+                proxies = proxy_rotator.get_proxies_dict()
                 resp = curl_requests.get(
                     url,
                     impersonate="chrome124",
                     headers=self.headers,
+                    proxies=proxies,
                     timeout=self.timeout,
                     verify=False
                 )
+                if resp.status_code in (403, 429) and proxies:
+                    proxy_rotator.report_failure(proxies.get("http"), status_code=resp.status_code, reason="Target site blocked IP")
+                    # Immediate auto-retry with next rotating proxy in pool
+                    alt_proxies = proxy_rotator.get_proxies_dict()
+                    resp = curl_requests.get(
+                        url,
+                        impersonate="chrome124",
+                        headers=self.headers,
+                        proxies=alt_proxies,
+                        timeout=self.timeout,
+                        verify=False
+                    )
                 if resp.status_code == 200:
                     return resp.text
             except Exception as e:
