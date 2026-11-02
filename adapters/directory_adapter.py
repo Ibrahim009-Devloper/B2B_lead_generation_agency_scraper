@@ -10,6 +10,7 @@ from adapters.base import SourceAdapter, RawLeadCandidate
 from pipeline.normalizer import normalize_domain, is_valid_agency_domain
 from core.database import LeadRepository
 from core.proxy_rotator import proxy_rotator
+from adapters.website_enrichment import FOREIGN_COUNTRY_TLDS
 
 logger = logging.getLogger("DirectoryAdapter")
 logger.setLevel(logging.INFO)
@@ -54,7 +55,7 @@ class DirectoryAdapter(SourceAdapter):
     # =========================================================================
     # 1. DesignRush B2B Lead Generation Harvester (safari15_5 cURL Friendly)
     # =========================================================================
-    def scrape_designrush(self, query: str = "", limit: int = 40, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
+    def scrape_designrush(self, query: str = "", limit: int = 40, target_country: Optional[str] = None, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
         candidates: List[RawLeadCandidate] = []
         seen_domains: Set[str] = set()
 
@@ -105,6 +106,9 @@ class DirectoryAdapter(SourceAdapter):
                         dom = normalize_domain(h)
                         if not dom or dom in seen_domains or not is_valid_agency_domain(dom):
                             continue
+                        if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+                            if any(dom.endswith(tld) or f"{tld}/" in dom for tld in FOREIGN_COUNTRY_TLDS):
+                                continue
                         if self.repo.is_domain_scraped_before(dom):
                             continue
 
@@ -112,6 +116,10 @@ class DirectoryAdapter(SourceAdapter):
                         name = a.get_text(strip=True)
                         if not name or len(name) < 2 or any(w in name.lower() for w in ["visit", "website", "profile", "read more"]):
                             name = dom.split(".")[0].replace("-", " ").title()
+
+                        # Skip non-ICP creative studios before crawling
+                        if any(bad in name.lower() for bad in ["rotulo", "video", "production", "film", "wedding", "photo", "interior", "architect"]):
+                            continue
 
                         clean_url = self._strip_utm(h)
                         candidates.append(RawLeadCandidate(
@@ -127,6 +135,7 @@ class DirectoryAdapter(SourceAdapter):
                         if len(candidates) >= limit:
                             break
 
+                    soup.decompose()
                     next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
@@ -142,7 +151,7 @@ class DirectoryAdapter(SourceAdapter):
     # =========================================================================
     # 2. The Manifest B2B Lead Gen Harvester (Direct Redirect Parameter)
     # =========================================================================
-    def scrape_themanifest(self, query: str = "", limit: int = 40, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
+    def scrape_themanifest(self, query: str = "", limit: int = 40, target_country: Optional[str] = None, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
         if self.themanifest_blocked:
             return []
         candidates: List[RawLeadCandidate] = []
@@ -202,6 +211,9 @@ class DirectoryAdapter(SourceAdapter):
                             dom = normalize_domain(target_u)
                             if not dom or dom in seen_domains or not is_valid_agency_domain(dom):
                                 continue
+                            if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+                                if any(dom.endswith(tld) or f"{tld}/" in dom for tld in FOREIGN_COUNTRY_TLDS):
+                                    continue
                             if self.repo.is_domain_scraped_before(dom):
                                 continue
 
@@ -261,10 +273,13 @@ class DirectoryAdapter(SourceAdapter):
                                         if u:
                                             dom = normalize_domain(u)
                                             if not dom or not is_valid_agency_domain(dom):
+                                                p_soup.decompose()
                                                 continue
                                             if self.repo.is_domain_scraped_before(dom):
+                                                p_soup.decompose()
                                                 continue
                                             clean_u = self._strip_utm(u)
+                                            p_soup.decompose()
                                             return RawLeadCandidate(
                                                 business_name=biz_name,
                                                 website=dom,
@@ -274,12 +289,13 @@ class DirectoryAdapter(SourceAdapter):
                                                 snippet=f"The Manifest verified B2B Lead Gen agency: {biz_name} ({dom})",
                                                 raw_data={"source": "themanifest", "url": clean_u}
                                             )
+                                p_soup.decompose()
                             except Exception:
                                 return None
                             return None
 
-                        with ThreadPoolExecutor(max_workers=10) as tm_exec:
-                            futures = [tm_exec.submit(_fetch_tm_profile, sl) for sl in profile_slugs]
+                        with ThreadPoolExecutor(max_workers=3) as tm_exec:
+                            futures = [tm_exec.submit(_fetch_tm_profile, sl) for sl in profile_slugs[:12]]
                             for f in as_completed(futures):
                                 res_cand = f.result()
                                 if res_cand and res_cand.website not in seen_domains:
@@ -289,6 +305,7 @@ class DirectoryAdapter(SourceAdapter):
                                     if len(candidates) >= limit:
                                         break
 
+                    soup.decompose()
                     next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
@@ -304,20 +321,27 @@ class DirectoryAdapter(SourceAdapter):
     # =========================================================================
     # 3. GoodFirms B2B Lead Gen & Telemarketing Directory
     # =========================================================================
-    def fetch_goodfirms_agencies(self, query: str = "", limit: int = 25, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
+    def fetch_goodfirms_agencies(self, query: str = "", limit: int = 25, target_country: Optional[str] = None, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
         candidates: List[RawLeadCandidate] = []
         seen_domains: Set[str] = set()
 
-        categories = [
-            ("goodfirms_lead_gen", "https://www.goodfirms.co/bpo-services/lead-generation"),
-            ("goodfirms_lead_gen_usa", "https://www.goodfirms.co/bpo-services/lead-generation/usa"),
-            ("goodfirms_lead_gen_uk", "https://www.goodfirms.co/bpo-services/lead-generation/uk"),
-            ("goodfirms_telemarketing", "https://www.goodfirms.co/bpo-services/telemarketing"),
-            ("goodfirms_telemarketing_usa", "https://www.goodfirms.co/bpo-services/telemarketing/usa"),
-            ("goodfirms_telemarketing_uk", "https://www.goodfirms.co/bpo-services/telemarketing/uk"),
-            ("goodfirms_lead_gen_canada", "https://www.goodfirms.co/bpo-services/lead-generation/canada"),
-            ("goodfirms_lead_gen_australia", "https://www.goodfirms.co/bpo-services/lead-generation/australia")
-        ]
+        if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+            categories = [
+                ("goodfirms_lead_gen_usa", "https://www.goodfirms.co/bpo-services/lead-generation/usa"),
+                ("goodfirms_telemarketing_usa", "https://www.goodfirms.co/bpo-services/telemarketing/usa"),
+                ("goodfirms_lead_gen", "https://www.goodfirms.co/bpo-services/lead-generation"),
+            ]
+        else:
+            categories = [
+                ("goodfirms_lead_gen", "https://www.goodfirms.co/bpo-services/lead-generation"),
+                ("goodfirms_lead_gen_usa", "https://www.goodfirms.co/bpo-services/lead-generation/usa"),
+                ("goodfirms_lead_gen_uk", "https://www.goodfirms.co/bpo-services/lead-generation/uk"),
+                ("goodfirms_telemarketing", "https://www.goodfirms.co/bpo-services/telemarketing"),
+                ("goodfirms_telemarketing_usa", "https://www.goodfirms.co/bpo-services/telemarketing/usa"),
+                ("goodfirms_telemarketing_uk", "https://www.goodfirms.co/bpo-services/telemarketing/uk"),
+                ("goodfirms_lead_gen_canada", "https://www.goodfirms.co/bpo-services/lead-generation/canada"),
+                ("goodfirms_lead_gen_australia", "https://www.goodfirms.co/bpo-services/lead-generation/australia")
+            ]
 
         for cat_key, base_url in categories:
             if len(candidates) >= limit:
@@ -374,15 +398,23 @@ class DirectoryAdapter(SourceAdapter):
                                     break
 
                             if not external_website:
+                                p_soup.decompose()
                                 return None
 
                             clean_dom = normalize_domain(external_website)
                             if not clean_dom or clean_dom in seen_domains or not is_valid_agency_domain(clean_dom):
+                                p_soup.decompose()
                                 return None
+                            if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+                                if any(clean_dom.endswith(tld) or f"{tld}/" in clean_dom for tld in FOREIGN_COUNTRY_TLDS):
+                                    p_soup.decompose()
+                                    return None
                             if self.repo.is_domain_scraped_before(clean_dom):
+                                p_soup.decompose()
                                 return None
 
                             clean_url = self._strip_utm(external_website)
+                            p_soup.decompose()
                             return RawLeadCandidate(
                                 business_name=biz_name,
                                 website=clean_dom,
@@ -397,8 +429,8 @@ class DirectoryAdapter(SourceAdapter):
 
                     page_found = 0
                     if company_links:
-                        links_batch = company_links[:35]
-                        with ThreadPoolExecutor(max_workers=12) as executor:
+                        links_batch = company_links[:min(12, max(6, limit))]
+                        with ThreadPoolExecutor(max_workers=3) as executor:
                             futures = [executor.submit(_fetch_gf_profile, rel) for rel in links_batch]
                             for fut in as_completed(futures):
                                 cand = fut.result()
@@ -411,6 +443,7 @@ class DirectoryAdapter(SourceAdapter):
                                             remaining_fut.cancel()
                                         break
 
+                    soup.decompose()
                     next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
@@ -431,20 +464,26 @@ class DirectoryAdapter(SourceAdapter):
     # =========================================================================
     # 4. Sortlist B2B Lead Gen & Prospecting Directory
     # =========================================================================
-    def scrape_sortlist(self, query: str = "", limit: int = 20, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
+    def scrape_sortlist(self, query: str = "", limit: int = 20, target_country: Optional[str] = None, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
         candidates: List[RawLeadCandidate] = []
         seen_domains: Set[str] = set()
 
-        categories = [
-            ("sortlist_lead_gen", "https://www.sortlist.com/lead-generation"),
-            ("sortlist_prospecting", "https://www.sortlist.com/prospecting"),
-            ("sortlist_lead_gen_us", "https://www.sortlist.com/s/lead-generation/united-states-us"),
-            ("sortlist_lead_gen_gb", "https://www.sortlist.com/s/lead-generation/united-kingdom-gb"),
-            ("sortlist_lead_gen_ca", "https://www.sortlist.com/s/lead-generation/canada-ca"),
-            ("sortlist_lead_gen_au", "https://www.sortlist.com/s/lead-generation/australia-au"),
-            ("sortlist_prospecting_us", "https://www.sortlist.com/s/prospecting/united-states-us"),
-            ("sortlist_prospecting_gb", "https://www.sortlist.com/s/prospecting/united-kingdom-gb")
-        ]
+        if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+            categories = [
+                ("sortlist_lead_gen_us", "https://www.sortlist.com/s/lead-generation/united-states-us"),
+                ("sortlist_prospecting_us", "https://www.sortlist.com/s/prospecting/united-states-us"),
+            ]
+        else:
+            categories = [
+                ("sortlist_lead_gen", "https://www.sortlist.com/lead-generation"),
+                ("sortlist_prospecting", "https://www.sortlist.com/prospecting"),
+                ("sortlist_lead_gen_us", "https://www.sortlist.com/s/lead-generation/united-states-us"),
+                ("sortlist_lead_gen_gb", "https://www.sortlist.com/s/lead-generation/united-kingdom-gb"),
+                ("sortlist_lead_gen_ca", "https://www.sortlist.com/s/lead-generation/canada-ca"),
+                ("sortlist_lead_gen_au", "https://www.sortlist.com/s/lead-generation/australia-au"),
+                ("sortlist_prospecting_us", "https://www.sortlist.com/s/prospecting/united-states-us"),
+                ("sortlist_prospecting_gb", "https://www.sortlist.com/s/prospecting/united-kingdom-gb")
+            ]
 
         for cat_key, base_url in categories:
             if len(candidates) >= limit:
@@ -502,15 +541,28 @@ class DirectoryAdapter(SourceAdapter):
                                         break
 
                             if not ext_site:
+                                p_soup.decompose()
+                                return None
+
+                            # Skip non-ICP creative studios before returning
+                            if any(bad in biz_name.lower() or bad in slug.lower() for bad in ["rotulo", "video", "production", "film", "wedding", "interior", "photo", "architect"]):
+                                p_soup.decompose()
                                 return None
 
                             dom = normalize_domain(ext_site)
                             if not dom or dom in seen_domains or not is_valid_agency_domain(dom):
+                                p_soup.decompose()
                                 return None
+                            if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+                                if any(dom.endswith(tld) or f"{tld}/" in dom for tld in FOREIGN_COUNTRY_TLDS):
+                                    p_soup.decompose()
+                                    return None
                             if self.repo.is_domain_scraped_before(dom):
+                                p_soup.decompose()
                                 return None
 
                             clean_url = self._strip_utm(ext_site)
+                            p_soup.decompose()
                             return RawLeadCandidate(
                                 business_name=biz_name,
                                 website=dom,
@@ -524,8 +576,8 @@ class DirectoryAdapter(SourceAdapter):
 
                     page_found = 0
                     if agency_slugs:
-                        slugs_batch = agency_slugs[:35]
-                        with ThreadPoolExecutor(max_workers=12) as executor:
+                        slugs_batch = agency_slugs[:min(12, max(6, limit))]
+                        with ThreadPoolExecutor(max_workers=3) as executor:
                             futures = [executor.submit(_fetch_sortlist_profile, slug) for slug in slugs_batch]
                             for fut in as_completed(futures):
                                 cand = fut.result()
@@ -538,6 +590,7 @@ class DirectoryAdapter(SourceAdapter):
                                             remaining_fut.cancel()
                                         break
 
+                    soup.decompose()
                     next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
@@ -609,9 +662,9 @@ class DirectoryAdapter(SourceAdapter):
     # =========================================================================
     # MASTER MULTI-DIRECTORY SEARCH (EXCLUSIVELY B2B LEAD GEN & OUTBOUND)
     # =========================================================================
-    def search(self, query: str, limit: int = 25, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
+    def search(self, query: str, limit: int = 25, target_country: Optional[str] = None, on_event: Optional[Any] = None) -> List[RawLeadCandidate]:
         """
-        Multi-source B2B Lead Gen directory harvester with persistent pagination:
+        Multi-source B2B Lead Gen directory harvester with persistent pagination and Geo-Filtering:
         1. DesignRush (B2B Lead Generation)
         2. The Manifest (Lead Generation & Sales Outsourcing Companies)
         3. GoodFirms (B2B Lead Generation & Outbound)
@@ -627,37 +680,41 @@ class DirectoryAdapter(SourceAdapter):
                 if len(candidates) >= limit:
                     break
                 d = normalize_domain(c.website or "")
-                if d and d not in seen_domains:
-                    seen_domains.add(d)
-                    candidates.append(c)
+                if not d or d in seen_domains:
+                    continue
+                if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+                    if any(d.endswith(tld) or f"{tld}/" in d for tld in FOREIGN_COUNTRY_TLDS):
+                        continue
+                seen_domains.add(d)
+                candidates.append(c)
 
         # 1. DesignRush B2B Lead Generation
         if len(candidates) < limit:
             if on_event:
                 on_event("Recon & Source Agent", f"Scanning DesignRush for B2B Lead Gen agencies...")
-            dr_batch = self.scrape_designrush(query=query, limit=(limit - len(candidates)), on_event=on_event)
+            dr_batch = self.scrape_designrush(query=query, limit=(limit - len(candidates)), target_country=target_country, on_event=on_event)
             add_batch(dr_batch)
 
         # 2. The Manifest B2B Lead Gen Companies
         if len(candidates) < limit:
             if on_event:
                 on_event("Recon & Source Agent", f"Scanning The Manifest for B2B Lead Gen companies...")
-            tm_batch = self.scrape_themanifest(query=query, limit=(limit - len(candidates)), on_event=on_event)
+            tm_batch = self.scrape_themanifest(query=query, limit=(limit - len(candidates)), target_country=target_country, on_event=on_event)
             add_batch(tm_batch)
 
-        # 3. Sortlist B2B Lead Gen Directory
-        if len(candidates) < limit:
-            if on_event:
-                on_event("Recon & Source Agent", f"Scanning Sortlist for B2B Lead Gen agencies...")
-            sort_batch = self.scrape_sortlist(query=query, limit=(limit - len(candidates)), on_event=on_event)
-            add_batch(sort_batch)
-
-        # 4. GoodFirms B2B Lead Gen Directory
+        # 3. GoodFirms B2B Lead Gen Directory (Prioritize ahead of Sortlist for USA searches)
         if len(candidates) < limit:
             if on_event:
                 on_event("Recon & Source Agent", f"Scanning GoodFirms for B2B Lead Gen agencies...")
-            gf_batch = self.fetch_goodfirms_agencies(query=query, limit=(limit - len(candidates)), on_event=on_event)
+            gf_batch = self.fetch_goodfirms_agencies(query=query, limit=(limit - len(candidates)), target_country=target_country, on_event=on_event)
             add_batch(gf_batch)
+
+        # 4. Sortlist B2B Lead Gen Directory
+        if len(candidates) < limit:
+            if on_event:
+                on_event("Recon & Source Agent", f"Scanning Sortlist for B2B Lead Gen agencies...")
+            sort_batch = self.scrape_sortlist(query=query, limit=(limit - len(candidates)), target_country=target_country, on_event=on_event)
+            add_batch(sort_batch)
 
         logger.info(f"DirectoryAdapter harvested total {len(candidates)} unique B2B Lead Gen candidates.")
         return candidates

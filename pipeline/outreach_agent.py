@@ -59,7 +59,7 @@ class OutreachAgent:
             f"Saw {lead.business_name}'s outbound work for {niche}. "
             f"We engineer bespoke web scrapers and automated lead data pipelines that extract fresh, verified decision-maker prospects directly from live company sites and directories—bypassing stale database platforms.\n\n"
             f"Could I send across a free sample of 25 custom-verified {niche} leads for your team to inspect?\n\n"
-            f"Best regards,\nLead Data Specialist"
+            f"Best regards,\n[Your Name]"
         )
 
         return OutreachPitchGeneration(
@@ -84,9 +84,14 @@ class OutreachAgent:
                 cta = sentences[-1]
                 clean = f"{body}\n\n{cta}"
         
-        # Add sign-off if missing
-        if not any(s in clean.lower() for s in ["best regards", "regards", "best,", "sincerely"]):
-            clean = f"{clean}\n\nBest regards,\nLead Data Specialist"
+        # Standardize sign-off strictly to "Best regards,\n[Your Name]"
+        clean = re.sub(
+            r"(?i)(?:best\s+regards|regards|sincerely|warmly|best)[,\s\n]+.*$",
+            "Best regards,\n[Your Name]",
+            clean
+        )
+        if "Best regards,\n[Your Name]" not in clean:
+            clean = f"{clean}\n\nBest regards,\n[Your Name]"
             
         full_draft = f"{greeting}\n\n{clean}"
         return (
@@ -145,10 +150,11 @@ class OutreachAgent:
             "Your objective: Pitch agency owners custom web-scraped datasets tailored to the EXACT clients they serve.\n"
             "STRICT RULES:\n"
             "1. Outreach draft MUST be UNDER 75 WORDS.\n"
-            "2. Plain-text only, NO hyperlinks, NO brackets.\n"
+            "2. Plain-text only, NO hyperlinks, NO brackets (except sign-off [Your Name]).\n"
             "3. Offer a small free sample dataset of 25-50 custom-scraped leads in their exact niche.\n"
             "4. Conversational, respectful, zero fluff, value-first.\n"
-            "5. STRICT GREETING (ZERO HALLUCINATIONS):\n"
+            "5. STRICT SIGN-OFF: End strictly with:\nBest regards,\n[Your Name]\n"
+            "6. STRICT GREETING (ZERO HALLUCINATIONS):\n"
             f"- {f'Start strictly with \"Hi {first_name},\"' if has_real_dm else f'Start strictly with \"Hi {lead.business_name} team,\"'}\n"
             "- NEVER invent random names (e.g. NEVER say 'Hey Eric' unless Eric is verified). NEVER write 'Hi founder'."
         )

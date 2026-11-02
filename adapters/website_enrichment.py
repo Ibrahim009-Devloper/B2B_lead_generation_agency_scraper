@@ -65,14 +65,85 @@ NON_ICP_SERVICE_KEYWORDS = [
     "pr agency", "public relations", "b2c marketing", "wedding", "photography"
 ]
 
-# Comprehensive generic email prefixes (Bug 3 Fix)
-GENERIC_EMAIL_PREFIXES = {
-    'info', 'sales', 'hello', 'support', 'contact', 'hi', 'admin', 'office', 'inquiry', 'inquiries',
-    'rfp', 'letschat', 'grow', 'howdy', 'newbiz', 'hireus', 'marketing', 'team', 'friends', 'careers',
-    'jobs', 'media', 'pr', 'press', 'billing', 'help', 'service', 'connect', 'welcome', 'dev', 'accounts',
-    'general', 'partner', 'partners', 'outreach', 'agency', 'hey', 'mail', 'start', 'work', 'projects',
-    'chicago', 'ny', 'london', 'austin', 'usa'
+# Foreign country TLDs blocked when targeting USA
+FOREIGN_COUNTRY_TLDS = (
+    ".de", ".fr", ".it", ".es", ".in", ".co.uk", ".uk", ".at", ".ch", ".nl", ".be", ".eu",
+    ".se", ".no", ".dk", ".fi", ".pl", ".cz", ".ru", ".cn", ".jp", ".kr", ".com.au", ".com.br",
+    ".co.in", ".co.za", ".co.nz", ".com.mx", ".com.ar", ".pt", ".ie"
+)
+
+# Comprehensive generic email prefixes - User Policy: STRICTLY DISALLOWED
+# info@, contact@, service@, support@, sales@, etc. are 100% REJECTED
+STRICTLY_DISALLOWED_PREFIXES = {
+    'info', 'contact', 'service', 'services', 'support', 'admin', 'office', 'inquiry', 'inquiries',
+    'sales', 'anfrage', 'kontakt', 'team', 'accounts', 'marketing', 'dev', 'jobs', 'billing',
+    'press', 'media', 'general', 'partners', 'partner', 'clients', 'mail', 'help', 'customercare',
+    'contactus', 'reachus', 'office-admin', 'inbound', 'operations', 'editor', 'privacy', 'legal',
+    'security', 'feedback', 'compliance', 'careers', 'hr', 'apply', 'noreply', 'no-reply',
+    'postmaster', 'hostmaster', 'webmaster', 'recruitment', 'accounting', 'invoice', 'desk',
+    'info-de', 'info-fr', 'info-us', 'customer'
 }
+
+# Owner & C-Suite personal role prefixes - EXPLICITLY ALLOWED
+OWNER_ROLE_PREFIXES = {
+    'founder', 'ceo', 'owner', 'partner', 'president', 'co-founder', 'cofounder',
+    'managing-director', 'principal', 'director'
+}
+
+GENERIC_EMAIL_PREFIXES = STRICTLY_DISALLOWED_PREFIXES
+
+def is_acceptable_lead_email(email: str, decision_maker_name: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    User Policy: ONLY accept:
+    1. Owner / Decision Maker personal email (john@, ceo@, founder@, firstname.lastname@)
+    2. hello@ (warm boutique inbox)
+    STRICTLY REJECT: info@, contact@, service@, support@, sales@, etc.
+    """
+    if not email or "@" not in email:
+        return False, "invalid_format"
+
+    local = email.split("@")[0].lower().strip()
+
+    # Priority 1: hello@ is explicitly allowed per user rule
+    if local == "hello":
+        return True, "hello_boutique_email"
+
+    # Priority 2: Block disallowed generic prefixes
+    if local in STRICTLY_DISALLOWED_PREFIXES or any(local.startswith(p) for p in ['info', 'contact', 'service', 'support', 'admin', 'office', 'inquir', 'sales', 'anfrage', 'kontakt']):
+        return False, "disallowed_generic_prefix"
+
+    # Priority 3: Owner / C-Suite role prefix
+    if local in OWNER_ROLE_PREFIXES:
+        return True, "owner_role_email"
+
+    # Priority 4: Direct Decision Maker Name match (e.g. Ambuj -> ambuj@, Arnold Koci -> arnold@, arnold.koci@)
+    if decision_maker_name:
+        dm_parts = [p.lower() for p in re.split(r"[\s._\-]+", decision_maker_name) if len(p) >= 2]
+        if any(p in local for p in dm_parts):
+            return True, "decision_maker_matched_email"
+
+    # Priority 5: Personal human name pattern (e.g. 'michael@', 'john@', 'sarah.connor@')
+    parts = re.split(r"[._\-]", local)
+    if len(parts) >= 1 and all(p.isalpha() and len(p) >= 2 for p in parts):
+        return True, "personal_owner_email"
+
+    return False, "unrecognized_or_generic"
+
+def extract_founder_name_from_text(text: str) -> Optional[str]:
+    """Extracts founder/CEO/partner name from text using strict regex patterns."""
+    patterns = [
+        r"(?:founded by|co-founded by)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})",
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s*,\s*(?:founder|ceo|co-founder|president|owner|managing director)",
+        r"(?:founder & ceo|founder and ceo|ceo & founder|ceo|founder|owner)\s*[:\-–—]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})",
+    ]
+    for p in patterns:
+        m = re.search(p, text, flags=re.IGNORECASE)
+        if m:
+            name = m.group(1).strip()
+            parts = name.split()
+            if 2 <= len(parts) <= 3 and not any(w.lower() in ["agency", "company", "services", "solutions", "group", "media", "digital", "lead", "marketing"] for w in parts):
+                return name.title()
+    return None
 
 POSITIVE_INDUSTRY_KEYWORDS = set(MANDATORY_B2B_LEADGEN_SIGNALS)
 REQUIRED_ICP_KEYWORDS = set(MANDATORY_B2B_LEADGEN_SIGNALS)
@@ -293,8 +364,8 @@ class WebsiteEnrichmentAgent:
             elif any(re.search(p, path) for p in service_patterns):
                 service_links.add(full_url)
 
-        # Prioritize: 1 Contact link, 1 Leadership link, 1 Service link
-        ordered = list(contact_links)[:1] + list(leadership_links)[:1] + list(service_links)[:1]
+        # Prioritize Leadership / Team links first to find Founder names and personal emails, then Contact, then Services
+        ordered = list(leadership_links)[:2] + list(contact_links)[:1] + list(service_links)[:1]
         soup.decompose()
         return ordered[:3]
 
@@ -433,6 +504,9 @@ class WebsiteEnrichmentAgent:
         for m in matches:
             cleaned = re.sub(r"^(?:u003e|u003c|>|<|mailto:)+", "", m, flags=re.IGNORECASE).strip()
             cleaned = cleaned.strip(".,;:\"'<>\\/ \t\n\r")
+            # Auto-sanitize any clipped prefix like "nfo@" -> "info@"
+            if cleaned.lower().startswith("nfo@"):
+                cleaned = "i" + cleaned
             if "@" not in cleaned:
                 continue
 
@@ -508,58 +582,75 @@ class WebsiteEnrichmentAgent:
 
     def _prioritize_emails(self, emails: List[str], decision_maker_name: Optional[str] = None) -> Tuple[Optional[str], List[str], str]:
         """
-        Email Priority Logic:
-        Only classify as 'Owner / Personal Email' if:
-        1. Matches detected DM name, OR
-        2. Fits valid firstname.lastname pattern (and not in GENERIC_EMAIL_PREFIXES).
-        Otherwise, strictly 'Generic Business Email'.
+        User Strict Email Policy:
+        ONLY accept:
+        1. Owner / Decision Maker personal email (john@, ceo@, founder@, firstname.lastname@)
+        2. hello@ (warm boutique inbox)
+        STRICTLY REJECT: info@, contact@, service@, support@, sales@, etc.
         """
         if not emails:
-            return None, [], "Generic Business Email"
+            return None, [], "Disallowed"
 
-        personal = []
-        generic = []
+        owner_emails = []
         dm_matches = []
+        hello_emails = []
 
-        dm_parts = [p.lower() for p in decision_maker_name.split() if len(p) >= 2] if decision_maker_name else []
+        dm_parts = [p.lower() for p in re.split(r"[\s._\-]+", decision_maker_name) if len(p) >= 2] if decision_maker_name else []
 
         for em in emails:
-            local = em.split("@")[0].lower().strip()
-            if local in GENERIC_EMAIL_PREFIXES:
-                generic.append(em)
+            is_ok, reason = is_acceptable_lead_email(em, decision_maker_name)
+            if not is_ok:
                 continue
 
-            if dm_parts and any(p in local for p in dm_parts):
+            local = em.split("@")[0].lower().strip()
+            if local == "hello":
+                hello_emails.append(em)
+            elif dm_parts and any(p in local for p in dm_parts):
                 dm_matches.append(em)
             else:
-                parts = re.split(r"[._\-]", local)
-                if len(parts) == 2 and all(p.isalpha() and len(p) >= 2 for p in parts):
-                    personal.append(em)
-                elif local in ["ceo", "founder", "owner", "partner", "president"]:
-                    personal.append(em)
-                else:
-                    # Ambiguous single name or arbitrary word -> treat as generic business email
-                    generic.append(em)
+                owner_emails.append(em)
 
-        ordered_personal = dm_matches + [e for e in personal if e not in dm_matches]
-
-        if ordered_personal:
-            primary = ordered_personal[0]
+        # Priority 1: Direct Decision Maker Match (e.g. Ambuj -> ambuj@salesaladin.com)
+        # Priority 2: Owner/Executive/Personal Email (e.g. founder@, ceo@, michael@)
+        # Priority 3: hello@ (boutique inbox)
+        ordered = dm_matches + [e for e in owner_emails if e not in dm_matches]
+        if ordered:
+            primary = ordered[0]
             cat = "Owner / Personal Email"
-            backups = [e for e in (ordered_personal[1:] + generic) if e != primary][:2]
-        else:
-            primary = generic[0] if generic else emails[0]
-            cat = "Generic Business Email"
-            backups = [e for e in generic if e != primary][:2]
+            backups = [e for e in (ordered[1:] + hello_emails) if e != primary][:2]
+            return primary, backups, cat
+        elif hello_emails:
+            primary = hello_emails[0]
+            cat = "hello@ Boutique Email"
+            backups = [e for e in hello_emails[1:] if e != primary][:2]
+            return primary, backups, cat
 
-        return primary, backups, cat
+        return None, [], "Disallowed"
 
-    def enrich_website(self, raw_website: str, initial_name: str = "") -> WebsiteSignalExtraction:
+    def enrich_website(self, raw_website: str, initial_name: str = "", target_country: Optional[str] = None) -> WebsiteSignalExtraction:
         base_url = self._normalize_url(raw_website)
         all_text_snippets: List[str] = []
         extracted_emails: List[str] = []
         extracted_phones: List[str] = []
         tech_fit = 15
+
+        # Geo Filter: If target country is USA, immediately drop foreign ccTLDs
+        if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
+            dom_low = base_url.lower()
+            for tld in FOREIGN_COUNTRY_TLDS:
+                if dom_low.endswith(tld) or f"{tld}/" in dom_low:
+                    logger.info(f"Target country is USA but foreign ccTLD '{tld}' detected for {raw_website}. Dropping (0 tokens burned).")
+                    return WebsiteSignalExtraction(
+                        clean_business_name=self._format_domain_brand(base_url),
+                        is_agency=False,
+                        is_real_business=False,
+                        is_verified_target=False,
+                        agency_type=AgencyType.NON_ICP,
+                        target_verification_status=f"REJECTED: Non-USA foreign ccTLD '{tld}'",
+                        factual_confidence=0.0,
+                        non_agency_reason=f"Target country is USA but domain has foreign ccTLD '{tld}'",
+                        zero_token_rejected=True
+                    )
 
         home_html = self.fetch_page(base_url)
         if not home_html and base_url.startswith("https://"):
@@ -628,21 +719,26 @@ class WebsiteEnrichmentAgent:
 
         all_text_snippets.append(f"--- Homepage ({base_url}) ---\n{home_text}")
 
-        # Targeted Multi-Page Scraping: Crawl up to 3 key subpages (Contact, About, Services)
+        # Targeted Multi-Page Scraping: Prioritize team/leadership and contact subpages
         sub_links = self.discover_relevant_links(base_url, home_html)
-        if len(sub_links) < 3:
-            for probe_path in ["/contact", "/contact-us", "/services", "/solutions", "/about"]:
+        if len(sub_links) < 4:
+            for probe_path in ["/team", "/about", "/leadership", "/our-team", "/contact", "/services"]:
                 probe_url = f"{base_url.rstrip('/')}{probe_path}"
                 if probe_url not in sub_links:
                     sub_links.append(probe_url)
-                if len(sub_links) >= 3:
+                if len(sub_links) >= 4:
                     break
 
-        target_sub_links = sub_links[:3]
+        target_sub_links = sub_links[:4]
         # Sequential subpage crawl (avoids nested thread pool explosion inside 512MB RAM container)
         for link in target_sub_links:
-            # Early exit: If we already found a valid email on homepage/contact, avoid unnecessary subpage crawls
-            if extracted_emails and len(all_text_snippets) >= 2:
+            # Owner Protection Early Exit: Only break if an actual personal/owner email was found
+            # (Never early-exit on generic emails or hello@ until team/leadership/about pages are checked!)
+            has_owner_personal_email = any(
+                is_acceptable_lead_email(em)[0] and not em.lower().startswith("hello@")
+                for em in extracted_emails
+            )
+            if has_owner_personal_email and len(all_text_snippets) >= 2:
                 break
             try:
                 sub_html = self.fetch_page(link)
@@ -720,9 +816,28 @@ class WebsiteEnrichmentAgent:
                 zero_token_rejected=True
             )
 
-        # Prioritize real, deliverable emails
-        primary_email, backup_emails, email_cat = self._prioritize_emails(valid_mx_emails)
+        # Extract Founder / Leadership name from text to boost personal email matching
+        detected_founder = extract_founder_name_from_text(combined_text)
+
+        # Prioritize real, deliverable emails according to User's Strict Email Policy
+        primary_email, backup_emails, email_cat = self._prioritize_emails(valid_mx_emails, decision_maker_name=detected_founder)
         email_hidden_on_site = False
+
+        # STRICT EMAIL POLICY GATE: Only Owner/Decision-Maker emails or hello@ accepted!
+        # info@, contact@, service@, support@, sales@, etc. are 100% REJECTED!
+        if not primary_email:
+            logger.info(f"Strict Email Gate DROPPED {raw_website}: Only generic emails found ({valid_mx_emails}). No owner personal email or hello@ found. (0 tokens burned).")
+            return WebsiteSignalExtraction(
+                clean_business_name=og_brand or self._format_domain_brand(base_url),
+                is_agency=False,
+                is_real_business=False,
+                is_verified_target=False,
+                agency_type=AgencyType.NON_ICP,
+                target_verification_status="REJECTED: Disallowed generic email (only info/contact/service found)",
+                factual_confidence=0.0,
+                non_agency_reason="Strict Email Policy: info@, contact@, and service@ emails are rejected; only Owner/Decision Maker or hello@ accepted (0 LLM tokens burned)",
+                zero_token_rejected=True
+            )
 
         # Python-First Email Priority Selection & Classification
         compressed_text = "\n\n".join(all_text_snippets)[:6000]
@@ -793,13 +908,14 @@ class WebsiteEnrichmentAgent:
             if extracted_linkedin and not extraction.decision_maker_linkedin:
                 extraction.decision_maker_linkedin = extracted_linkedin
 
-            # Auto-infer Decision Maker from email if LLM didn't find one
+            # Auto-infer Decision Maker from detected_founder or email if LLM didn't find one
             if not extraction.decision_maker_name or extraction.decision_maker_name.strip().lower() in ["not identified", "none", "n/a", "not found", "founder", "owner"]:
-                inferred_dm = self._infer_dm_from_email(primary_email)
+                inferred_dm = detected_founder or self._infer_dm_from_email(primary_email)
                 if inferred_dm:
                     extraction.decision_maker_name = inferred_dm
-                    extraction.decision_maker_role = "Leadership / Decision Maker"
-                    extraction.email_category = "Owner / Personal Email"
+                    extraction.decision_maker_role = "Founder / Leadership"
+                    if not email_cat.startswith("hello"):
+                        extraction.email_category = "Owner / Personal Email"
 
             # Strict 4-Condition Enforcement & ICP Lock
             is_lead_gen_type = extraction.agency_type in [AgencyType.B2B_LEAD_GEN, AgencyType.COLD_EMAIL]
@@ -847,7 +963,7 @@ class WebsiteEnrichmentAgent:
                     f"{greeting}\n\n"
                     f"Saw your agency's outbound pipeline work{niche}. We engineer custom automated scrapers and lead data pipelines that harvest fresh, verified B2B prospect lists directly from target directories and company domains—bypassing stale database platforms.\n\n"
                     f"Could I send over a free sample batch of 25 custom-verified leads matching your ICP to review?\n\n"
-                    f"Best regards,\nLead Data Specialist"
+                    f"Best regards,\n[Your Name]"
                 )
 
             # Cold Email Validation Gate (Bug 1 Fix: Never allow broken/truncated emails)
@@ -866,11 +982,22 @@ class WebsiteEnrichmentAgent:
                 body_without_greeting = re.sub(r"^(?:hi|hey|hello|dear)[^\n,]*[,:]?\s*", "", email_body, flags=re.IGNORECASE).strip()
                 extraction.ready_cold_email = f"{greeting}\n\n{body_without_greeting}"
 
+            # Standardize sender sign-off strictly to "Best regards,\n[Your Name]"
+            clean_draft = extraction.ready_cold_email.strip()
+            clean_draft = re.sub(
+                r"(?i)(?:best\s+regards|regards|sincerely|warmly|best)[,\s\n]+.*$",
+                "Best regards,\n[Your Name]",
+                clean_draft
+            )
+            if "Best regards,\n[Your Name]" not in clean_draft:
+                clean_draft = f"{clean_draft}\n\nBest regards,\n[Your Name]"
+            extraction.ready_cold_email = clean_draft
+
             return extraction
         except Exception as e:
             logger.error(f"Error in LLM website parsing for {base_url}: {e}")
             clean_brand = og_brand or self._format_domain_brand(base_url)
-            fallback_dm = self._infer_dm_from_email(primary_email)
+            fallback_dm = detected_founder or self._infer_dm_from_email(primary_email)
             fallback_greeting = f"Hi {fallback_dm.split()[0].title()}," if fallback_dm else f"Hi {clean_brand} team,"
             v_stat = (
                 "LINKEDIN_OUTREACH_CANDIDATE (B2B Lead Gen)" if (email_hidden_on_site and extracted_linkedin)
@@ -890,7 +1017,7 @@ class WebsiteEnrichmentAgent:
                 backup_emails=backup_emails,
                 email_category="Owner / Personal Email" if fallback_dm else email_cat,
                 decision_maker_name=fallback_dm,
-                decision_maker_role="Leadership / Decision Maker" if fallback_dm else None,
+                decision_maker_role="Founder / Leadership" if fallback_dm else None,
                 decision_maker_linkedin=extracted_linkedin,
                 email_hidden_on_site=email_hidden_on_site,
                 complete_business_summary=f"B2B lead generation & outbound agency operating at {base_url}",
@@ -900,7 +1027,7 @@ class WebsiteEnrichmentAgent:
                     f"{fallback_greeting}\n\n"
                     f"Saw your agency's outbound work at {base_url}. We build custom web scrapers and lead data pipelines so agencies get fresh niche prospect data without relying on stale lists.\n\n"
                     f"Could I send over a free sample of 25 custom-verified leads in your target niche to review?\n\n"
-                    f"Best regards,\nLead Data Specialist"
+                    f"Best regards,\n[Your Name]"
                 ),
                 factual_confidence=0.7
             )

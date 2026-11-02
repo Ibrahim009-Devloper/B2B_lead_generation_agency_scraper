@@ -654,7 +654,7 @@
       });
     }
 
-    // Initial load and periodic polling every 2 seconds
+    // Initial load and gentle periodic polling every 5 seconds (prevents connection drops & RAM churn)
     fetchTelemetry();
     fetchLeads();
     setInterval(() => {
@@ -662,7 +662,7 @@
       if (isRunning) {
         fetchLeads();
       }
-    }, 2000);
+    }, 5000);
   </script>
 </body>
 </html>

@@ -189,6 +189,7 @@ def get_muse_manifest(request: Request):
 
 # 2. Campaign Management Endpoints
 @router.post("/campaigns/start", dependencies=[Depends(verify_muse_auth)])
+@router.post("/campaigns/start/", dependencies=[Depends(verify_muse_auth)])
 def muse_start_campaign(req: MuseCampaignStartRequest):
     """
     Launch an autonomous background scraping campaign from MUSE AI.
@@ -210,6 +211,7 @@ def muse_start_campaign(req: MuseCampaignStartRequest):
     }
 
 @router.post("/campaigns/stop", dependencies=[Depends(verify_muse_auth)])
+@router.post("/campaigns/stop/", dependencies=[Depends(verify_muse_auth)])
 def muse_stop_campaign():
     """
     Immediately stops the active campaign and signals all background workers to abort.
@@ -218,6 +220,7 @@ def muse_stop_campaign():
     return result
 
 @router.get("/campaigns/status", dependencies=[Depends(verify_muse_auth)])
+@router.get("/campaigns/status/", dependencies=[Depends(verify_muse_auth)])
 def muse_get_campaign_status():
     """
     Returns the real-time execution status of the scraper for MUSE AI.
@@ -251,6 +254,7 @@ def muse_get_campaign_status():
 
 # 3. Live Logs & Diagnostics Endpoints
 @router.get("/logs", dependencies=[Depends(verify_muse_auth)])
+@router.get("/logs/", dependencies=[Depends(verify_muse_auth)])
 def muse_get_logs(
     kind: str = Query("scraper", pattern="^(scraper|errors)$", description="Which log file to inspect"),
     lines: int = Query(50, ge=1, le=500, description="Number of recent log lines to return"),
@@ -292,6 +296,7 @@ def muse_get_logs(
         raise HTTPException(status_code=500, detail=f"Failed to read logs: {str(e)}")
 
 @router.get("/activity", dependencies=[Depends(verify_muse_auth)])
+@router.get("/activity/", dependencies=[Depends(verify_muse_auth)])
 def muse_get_live_activity(limit: int = Query(50, ge=1, le=100)):
     """
     Returns the real-time event buffer captured by the orchestrator (agent step-by-step actions).
@@ -308,6 +313,7 @@ def muse_get_live_activity(limit: int = Query(50, ge=1, le=100)):
 
 # 4. Leads & Intelligence Retrieval Endpoints
 @router.get("/leads", dependencies=[Depends(verify_muse_auth)])
+@router.get("/leads/", dependencies=[Depends(verify_muse_auth)])
 def muse_get_leads(
     scope: str = Query("current", pattern="^(current|all)$", description="Scope of leads: 'current' (latest session) or 'all' (entire database)"),
     limit: int = Query(50, ge=1, le=1000, description="Max leads to return"),
@@ -323,12 +329,12 @@ def muse_get_leads(
 
     leads: List[LeadRecord] = []
     if scope == "current":
-        if is_running:
-            leads = list(getattr(master_orchestrator, "active_verified_leads", []))
-        elif SCRAPING_STATE.get("last_campaign_leads"):
-            leads = list(SCRAPING_STATE["last_campaign_leads"])
+        if is_running and getattr(master_orchestrator, "active_verified_leads", None):
+            leads = list(master_orchestrator.active_verified_leads)
         elif target_campaign:
             leads = repo.list_leads(campaign_id=target_campaign, limit=limit)
+        elif SCRAPING_STATE.get("last_campaign_leads"):
+            leads = list(SCRAPING_STATE["last_campaign_leads"])
         else:
             conn = repo._get_conn()
             c = conn.cursor()
@@ -389,6 +395,7 @@ def muse_get_lead_by_id(lead_id: UUID):
     }
 
 @router.get("/export", dependencies=[Depends(verify_muse_auth)])
+@router.get("/export/", dependencies=[Depends(verify_muse_auth)])
 def muse_export_leads(
     format: str = Query("json", pattern="^(json|xlsx|csv)$", description="Export format"),
     scope: str = Query("current", pattern="^(current|all)$", description="Scope of export")
@@ -408,6 +415,7 @@ def muse_export_leads(
 
 # 5. System Telemetry & Health
 @router.get("/telemetry", dependencies=[Depends(verify_muse_auth)])
+@router.get("/telemetry/", dependencies=[Depends(verify_muse_auth)])
 def muse_get_telemetry():
     """
     Telemetry and health diagnostics for MUSE AI to inspect system capacity and resource pools.
@@ -451,6 +459,7 @@ def muse_get_telemetry():
 
 # 6. Reinforcement Feedback
 @router.post("/feedback", dependencies=[Depends(verify_muse_auth)])
+@router.post("/feedback/", dependencies=[Depends(verify_muse_auth)])
 def muse_submit_feedback(req: MuseFeedbackRequest):
     """
     Inject reinforcement learning rules into the memory store from MUSE AI.

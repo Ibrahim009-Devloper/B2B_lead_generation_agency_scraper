@@ -236,9 +236,7 @@ class LeadRepository:
         self.db_path = db_path or get_db_path()
 
     def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return get_connection()
 
     # ---------------- 90-Day Cooldown Memory Logic ----------------
     def is_domain_in_cooldown(self, domain: Optional[str], cooldown_days: int = 90) -> bool:

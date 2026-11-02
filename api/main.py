@@ -129,34 +129,38 @@ def get_telemetry():
     is_running = SCRAPING_STATE.get("is_running", False)
     current_cid = getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id")
     live_leads = getattr(master_orchestrator, "active_verified_leads", [])
-    all_leads = repo.list_leads(limit=5000)
 
-    if is_running:
-        # LIVE RUNNING STATE: Count live verified hot leads directly as they are harvested!
-        hot_leads_count = len(live_leads)
-        active_records = getattr(master_orchestrator, "active_all_records", []) or live_leads
-        qualified_count = len(live_leads)
-        needs_review_count = sum(1 for l in active_records if getattr(l, "overall_priority", None) == PriorityTier.NEEDS_REVIEW)
-        rejected_count = sum(1 for l in active_records if getattr(l, "overall_priority", None) == PriorityTier.REJECTED)
-    elif current_cid:
-        session_leads = repo.list_leads(campaign_id=current_cid, limit=1000)
-        if not session_leads and SCRAPING_STATE.get("last_campaign_leads"):
-            session_leads = SCRAPING_STATE["last_campaign_leads"]
-        active_pool = session_leads if session_leads else all_leads
-        hot_leads_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) == PriorityTier.HOT_LEAD or (getattr(l, "verified_email", None) and (getattr(l, "total_score", 0) or getattr(l, "opportunity_score", 0) or 0) >= 75))
-        qualified_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) in (PriorityTier.HOT_LEAD, PriorityTier.QUALIFIED, PriorityTier.HIGH_POTENTIAL))
-        needs_review_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) == PriorityTier.NEEDS_REVIEW)
-        rejected_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) == PriorityTier.REJECTED)
-    else:
-        hot_leads_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) == PriorityTier.HOT_LEAD or (getattr(l, "verified_email", None) and (getattr(l, "total_score", 0) or getattr(l, "opportunity_score", 0) or 0) >= 75))
-        qualified_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) in (PriorityTier.HOT_LEAD, PriorityTier.QUALIFIED, PriorityTier.HIGH_POTENTIAL))
-        needs_review_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) == PriorityTier.NEEDS_REVIEW)
-        rejected_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) == PriorityTier.REJECTED)
-    
     conn = get_connection()
     c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM leads")
+    total_leads = c.fetchone()[0]
+
     c.execute("SELECT COUNT(*) FROM scraped_domains")
     total_scraped_domains = c.fetchone()[0]
+
+    if is_running:
+        hot_leads_count = len(live_leads)
+        qualified_count = len(live_leads)
+        needs_review_count = 0
+        rejected_count = 0
+    elif current_cid:
+        c.execute("SELECT COUNT(*) FROM leads WHERE campaign_id = ? AND overall_priority = 'Hot Lead'", (current_cid,))
+        hot_leads_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM leads WHERE campaign_id = ? AND overall_priority IN ('Hot Lead', 'Qualified', 'High Potential')", (current_cid,))
+        qualified_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM leads WHERE campaign_id = ? AND overall_priority = 'Needs Review'", (current_cid,))
+        needs_review_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM leads WHERE campaign_id = ? AND overall_priority = 'Rejected'", (current_cid,))
+        rejected_count = c.fetchone()[0]
+    else:
+        c.execute("SELECT COUNT(*) FROM leads WHERE overall_priority = 'Hot Lead'")
+        hot_leads_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM leads WHERE overall_priority IN ('Hot Lead', 'Qualified', 'High Potential')")
+        qualified_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM leads WHERE overall_priority = 'Needs Review'")
+        needs_review_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM leads WHERE overall_priority = 'Rejected'")
+        rejected_count = c.fetchone()[0]
     conn.close()
 
     groq_active = sum(1 for k in llm_router.groq_pool.keys if k.is_available())
@@ -171,7 +175,7 @@ def get_telemetry():
         "qualified_count": qualified_count,
         "needs_review_count": needs_review_count,
         "rejected_count": rejected_count,
-        "total_leads": len(all_leads),
+        "total_leads": total_leads,
         "total_scraped_domains": total_scraped_domains,
         "groq_active": groq_active,
         "groq_total": len(llm_router.groq_pool.keys),

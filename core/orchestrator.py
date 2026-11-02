@@ -174,6 +174,21 @@ class MasterOrchestrator:
         if on_event:
             on_event("Master Orchestrator", f"Plan parsed: {len(plan.search_queries)} queries, targeting {limit} leads.")
 
+        # Detect Geo/Target Country
+        prompt_low = prompt.lower()
+        target_country = None
+        if any(w in prompt_low for w in ["usa", "united states", "u.s.", "us agency", "us agencies", " in us", "in the us", "in usa"]):
+            target_country = "USA"
+        elif any(w in prompt_low for w in ["uk", "united kingdom", "britain", "england"]):
+            target_country = "UK"
+        elif any(w in prompt_low for w in ["canada", "ca agency"]):
+            target_country = "Canada"
+        elif any(w in prompt_low for w in ["australia", "au agency"]):
+            target_country = "Australia"
+
+        if target_country and on_event:
+            on_event("Master Orchestrator", f"Target Country Geo-Filter Active: {target_country} (Strict foreign exclusion enabled)")
+
         # Step 2: Active Goal-Seeking Multi-Source Lead Harvesting Loop
         verified_leads: List[LeadRecord] = []
         all_campaign_records: List[LeadRecord] = []
@@ -185,11 +200,17 @@ class MasterOrchestrator:
 
         # Build dynamic discovery queries pool combining niches, footprints, and major agency cities
         base_term = plan.search_queries[0] if plan.search_queries else prompt
-        agency_cities = [
-            "New York", "London", "Austin", "Chicago", "Toronto",
-            "San Francisco", "Atlanta", "Dallas", "Boston", "Miami",
-            "Denver", "Los Angeles", "Seattle"
-        ]
+        if target_country == "USA":
+            agency_cities = [
+                "New York", "Austin", "Chicago", "San Francisco",
+                "Atlanta", "Dallas", "Boston", "Miami", "Denver", "Los Angeles", "Seattle"
+            ]
+        else:
+            agency_cities = [
+                "New York", "London", "Austin", "Chicago", "Toronto",
+                "San Francisco", "Atlanta", "Dallas", "Boston", "Miami",
+                "Denver", "Los Angeles", "Seattle"
+            ]
         search_queries_pool = list(plan.search_queries)
         
         # High-intent direct agency search footprints
@@ -211,7 +232,7 @@ class MasterOrchestrator:
             on_event("Recon & Source Agent", "Harvesting B2B directories (DesignRush, The Manifest, Sortlist, GoodFirms)...")
         initial_candidates: List[Any] = []
         try:
-            initial_candidates = self.directory_adapter.search(base_term, limit=max(60, limit * 3), on_event=on_event)
+            initial_candidates = self.directory_adapter.search(base_term, limit=max(60, limit * 3), target_country=target_country, on_event=on_event)
             total_discovered_candidates += len(initial_candidates)
             logger.info(f"Directory harvest yielded {len(initial_candidates)} candidates.")
         except Exception as e:
@@ -241,6 +262,17 @@ class MasterOrchestrator:
                     duplicates_removed_count += 1
                 return None
 
+            # Strict Geo-Filter: Drop foreign ccTLDs if targeting USA
+            if target_country == "USA":
+                from adapters.website_enrichment import FOREIGN_COUNTRY_TLDS
+                dom_low = dom.lower()
+                if any(dom_low.endswith(tld) or f"{tld}/" in dom_low for tld in FOREIGN_COUNTRY_TLDS):
+                    with state_lock:
+                        duplicates_removed_count += 1
+                    if on_event:
+                        on_event("Harvester Agent", f"Dropped {cand.business_name} ({dom}) - foreign ccTLD (target: USA).")
+                    return None
+
             # Drop directory/portal domains
             if any(dom == d or dom.endswith("." + d) for d in DIRECTORY_AND_PORTAL_DOMAINS):
                 with state_lock:
@@ -264,7 +296,7 @@ class MasterOrchestrator:
             if on_event:
                 on_event("Harvester Agent", f"Crawling {cand.business_name} ({website}) - multi-page crawl & email extraction...")
 
-            enrichment = self.enricher.enrich_website(website, initial_name=cand.business_name)
+            enrichment = self.enricher.enrich_website(website, initial_name=cand.business_name, target_country=target_country)
 
             clean_name = enrichment.clean_business_name or cand.business_name
             if any(w in clean_name.lower() for w in ["best ", "top ", "list of ", "agencies in ", "companies in ", "services in "]):
@@ -289,7 +321,8 @@ class MasterOrchestrator:
                 )
                 with state_lock:
                     self.repo.record_scraped_domain(dom, status=db_status)
-                    all_campaign_records.append(rej_lead)
+                    if len(all_campaign_records) < 20:
+                        all_campaign_records.append(rej_lead)
                 if on_event:
                     if is_layer1_drop:
                         on_event("Harvester Agent", f"Dropped {cand.business_name} ({dom}) - Layer 1 filter: {rec_reason} (0 tokens burned).")
@@ -483,7 +516,7 @@ class MasterOrchestrator:
 
             batch_candidates: List[Any] = []
             try:
-                batch_candidates = self.directory_adapter.search(base_term, limit=batch_target, on_event=on_event)
+                batch_candidates = self.directory_adapter.search(base_term, limit=batch_target, target_country=target_country, on_event=on_event)
                 total_discovered_candidates += len(batch_candidates)
             except Exception as e:
                 logger.warning(f"Directory harvester round {round_idx} notice: {e}")
