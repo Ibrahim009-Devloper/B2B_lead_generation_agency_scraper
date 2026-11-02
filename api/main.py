@@ -18,6 +18,7 @@ from learning.memory_store import memory_store
 from learning.evaluator import pipeline_evaluator
 from core.logger import setup_logging, SCRAPER_LOG_PATH, ERRORS_LOG_PATH, UI_LOG_BUFFER
 from core.memory_guard import get_memory_stats
+from core.keep_alive import keep_alive_engine
 from api.state import (
     SCRAPING_STATE,
     log_agent_activity,
@@ -40,6 +41,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def capture_host_for_keep_alive(request: Request, call_next):
+    # Auto-detect public URL from Render edge routing headers to ensure anti-sleep pings reach the public router
+    host = request.headers.get("host")
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if host and "localhost" not in host and "127.0.0.1" not in host:
+        keep_alive_engine.set_public_url(f"{proto}://{host}")
+    elif request.base_url:
+        b_url = str(request.base_url).rstrip("/")
+        if "localhost" not in b_url and "127.0.0.1" not in b_url:
+            keep_alive_engine.set_public_url(b_url)
+    response = await call_next(request)
+    return response
+
+@app.on_event("startup")
+def start_anti_sleep_daemon():
+    keep_alive_engine.start()
 
 # Mount MUSE AI integration router
 app.include_router(muse_router)
@@ -118,7 +137,8 @@ def get_system_status():
         "groq_pool": {"active": groq_active, "total": len(llm_router.groq_pool.keys)},
         "gemini_pool": {"active": gemini_active, "total": len(llm_router.gemini_pool.keys)},
         "deepseek_pool": {"active": deepseek_active, "total": 1, "model": settings.DEEPSEEK_MODEL},
-        "memory": {**get_memory_stats(), "limit_mb": 512}
+        "memory": {**get_memory_stats(), "limit_mb": 512},
+        "keep_alive": keep_alive_engine.get_status()
     }
 
 @app.get("/api/telemetry")

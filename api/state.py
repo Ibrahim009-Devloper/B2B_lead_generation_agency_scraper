@@ -116,6 +116,14 @@ def start_background_campaign(prompt: str, target_count: int = 25, webhook_url: 
     
     t = threading.Thread(target=_background_scraper_worker, args=(prompt, target_count, webhook_url), daemon=True)
     t.start()
+    
+    # Trigger an immediate anti-sleep heartbeat ping so Render's idle counter is reset right away
+    try:
+        from core.keep_alive import keep_alive_engine
+        threading.Thread(target=keep_alive_engine.ping_now, daemon=True).start()
+    except Exception:
+        pass
+
     return {
         "status": "started",
         "message": f"Scraping swarm launched targeting {target_count} hot leads." + (f" Webhook will be called at {webhook_url} when done." if webhook_url else ""),

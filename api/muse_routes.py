@@ -170,6 +170,19 @@ def get_muse_manifest(request: Request):
                 "parameters": {"type": "object", "properties": {}}
             },
             {
+                "id": "check_keep_alive",
+                "name": "Check Anti-Sleep Status",
+                "description": "Inspect Render anti-sleep heartbeat daemon or trigger an immediate keep-alive ping.",
+                "method": "GET",
+                "endpoint": f"{base_url}/api/v1/muse/keep-alive",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "trigger_now": {"type": "boolean", "default": false, "description": "Send an immediate heartbeat ping to prevent spin-down"}
+                    }
+                }
+            },
+            {
                 "id": "submit_feedback",
                 "name": "Submit Learning Feedback",
                 "description": "Inject learning feedback or penalty rules into memory store to refine agency targeting and eliminate false positives.",
@@ -190,10 +203,20 @@ def get_muse_manifest(request: Request):
 # 2. Campaign Management Endpoints
 @router.post("/campaigns/start", dependencies=[Depends(verify_muse_auth)])
 @router.post("/campaigns/start/", dependencies=[Depends(verify_muse_auth)])
-def muse_start_campaign(req: MuseCampaignStartRequest):
+def muse_start_campaign(req: MuseCampaignStartRequest, request: Request):
     """
     Launch an autonomous background scraping campaign from MUSE AI.
     """
+    from core.keep_alive import keep_alive_engine
+
+    # Auto-register public URL so anti-sleep heartbeat hits Render's public edge router
+    host = request.headers.get("host")
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if host and "localhost" not in host and "127.0.0.1" not in host:
+        keep_alive_engine.set_public_url(f"{proto}://{host}")
+    elif request.base_url:
+        keep_alive_engine.set_public_url(str(request.base_url).rstrip("/"))
+
     effective_prompt = req.prompt
     if req.geo and req.geo.lower() not in effective_prompt.lower():
         effective_prompt = f"{effective_prompt} in {req.geo}"
@@ -207,7 +230,8 @@ def muse_start_campaign(req: MuseCampaignStartRequest):
         "prompt": effective_prompt,
         "target_count": target,
         "webhook_url": req.webhook_url,
-        "is_running": SCRAPING_STATE["is_running"]
+        "is_running": SCRAPING_STATE["is_running"],
+        "keep_alive": keep_alive_engine.get_status()
     }
 
 @router.post("/campaigns/stop", dependencies=[Depends(verify_muse_auth)])
@@ -225,6 +249,8 @@ def muse_get_campaign_status():
     """
     Returns the real-time execution status of the scraper for MUSE AI.
     """
+    from core.keep_alive import keep_alive_engine
+
     is_running = SCRAPING_STATE.get("is_running", False)
     target_count = SCRAPING_STATE.get("target_count", 25)
     live_leads = getattr(master_orchestrator, "active_verified_leads", [])
@@ -249,7 +275,27 @@ def muse_get_campaign_status():
         "total_scraped_domains": total_scraped_domains,
         "last_event_time": SCRAPING_STATE.get("last_event_time", ""),
         "campaign_id": getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id"),
-        "memory": {**get_memory_stats(), "limit_mb": 512}
+        "memory": {**get_memory_stats(), "limit_mb": 512},
+        "keep_alive": keep_alive_engine.get_status()
+    }
+
+@router.get("/keep-alive", dependencies=[Depends(verify_muse_auth)])
+@router.get("/keep-alive/", dependencies=[Depends(verify_muse_auth)])
+def muse_get_keep_alive_status(trigger_now: bool = False):
+    """
+    Inspects anti-sleep heartbeat status and allows manually sending an immediate ping.
+    """
+    from core.keep_alive import keep_alive_engine
+    if trigger_now:
+        success = keep_alive_engine.ping_now()
+        return {
+            "status": "ping_sent",
+            "ping_successful": success,
+            "telemetry": keep_alive_engine.get_status()
+        }
+    return {
+        "status": "ok",
+        "telemetry": keep_alive_engine.get_status()
     }
 
 # 3. Live Logs & Diagnostics Endpoints
