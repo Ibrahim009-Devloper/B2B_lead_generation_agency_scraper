@@ -69,7 +69,7 @@ class DirectoryAdapter(SourceAdapter):
                 break
 
             start_page = self.repo.get_crawl_page(cat_key)
-            if start_page > 12:
+            if start_page > 60:
                 start_page = 1
             current_page = start_page
 
@@ -127,7 +127,7 @@ class DirectoryAdapter(SourceAdapter):
                         if len(candidates) >= limit:
                             break
 
-                    next_p = 1 if (p + 1) >= 12 else (p + 1)
+                    next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
                         if on_event:
@@ -289,7 +289,7 @@ class DirectoryAdapter(SourceAdapter):
                                     if len(candidates) >= limit:
                                         break
 
-                    next_p = 1 if (p + 1) >= 12 else (p + 1)
+                    next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
                         if on_event:
@@ -324,11 +324,11 @@ class DirectoryAdapter(SourceAdapter):
                 break
 
             start_page = self.repo.get_crawl_page(cat_key)
-            if start_page >= 10:
+            if start_page > 60:
                 start_page = 1
             current_page = start_page
 
-            pages_to_crawl = min(10, max(4, limit // 20))
+            pages_to_crawl = min(5, max(2, limit // 50))
             consecutive_zero = 0
             for page_offset in range(pages_to_crawl):
                 if len(candidates) >= limit:
@@ -397,8 +397,9 @@ class DirectoryAdapter(SourceAdapter):
 
                     page_found = 0
                     if company_links:
-                        with ThreadPoolExecutor(max_workers=10) as executor:
-                            futures = [executor.submit(_fetch_gf_profile, rel) for rel in company_links]
+                        links_batch = company_links[:35]
+                        with ThreadPoolExecutor(max_workers=12) as executor:
+                            futures = [executor.submit(_fetch_gf_profile, rel) for rel in links_batch]
                             for fut in as_completed(futures):
                                 cand = fut.result()
                                 if cand and cand.website not in seen_domains:
@@ -406,9 +407,11 @@ class DirectoryAdapter(SourceAdapter):
                                     candidates.append(cand)
                                     page_found += 1
                                     if len(candidates) >= limit:
+                                        for remaining_fut in futures:
+                                            remaining_fut.cancel()
                                         break
 
-                    next_p = 1 if (p + 1) >= 10 else (p + 1)
+                    next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
                         consecutive_zero = 0
@@ -448,11 +451,11 @@ class DirectoryAdapter(SourceAdapter):
                 break
 
             start_page = self.repo.get_crawl_page(cat_key)
-            if start_page >= 10:
+            if start_page > 60:
                 start_page = 1
             current_page = start_page
 
-            pages_to_crawl = min(10, max(4, limit // 20))
+            pages_to_crawl = min(5, max(2, limit // 50))
             consecutive_zero = 0
             for page_offset in range(pages_to_crawl):
                 if len(candidates) >= limit:
@@ -521,8 +524,9 @@ class DirectoryAdapter(SourceAdapter):
 
                     page_found = 0
                     if agency_slugs:
-                        with ThreadPoolExecutor(max_workers=10) as executor:
-                            futures = [executor.submit(_fetch_sortlist_profile, slug) for slug in agency_slugs]
+                        slugs_batch = agency_slugs[:35]
+                        with ThreadPoolExecutor(max_workers=12) as executor:
+                            futures = [executor.submit(_fetch_sortlist_profile, slug) for slug in slugs_batch]
                             for fut in as_completed(futures):
                                 cand = fut.result()
                                 if cand and cand.website not in seen_domains:
@@ -530,9 +534,11 @@ class DirectoryAdapter(SourceAdapter):
                                     candidates.append(cand)
                                     page_found += 1
                                     if len(candidates) >= limit:
+                                        for remaining_fut in futures:
+                                            remaining_fut.cancel()
                                         break
 
-                    next_p = 1 if (p + 1) >= 10 else (p + 1)
+                    next_p = (p + 1) if (p + 1) <= 60 else 1
                     self.repo.set_crawl_page(cat_key, next_p)
                     if page_found > 0:
                         consecutive_zero = 0

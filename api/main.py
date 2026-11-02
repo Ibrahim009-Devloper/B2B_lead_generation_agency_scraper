@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from core.database import LeadRepository, get_connection
@@ -16,6 +17,13 @@ from api.exporter import lead_exporter
 from learning.memory_store import memory_store
 from learning.evaluator import pipeline_evaluator
 from core.logger import setup_logging, SCRAPER_LOG_PATH, ERRORS_LOG_PATH, UI_LOG_BUFFER
+from api.state import (
+    SCRAPING_STATE,
+    log_agent_activity,
+    start_background_campaign,
+    stop_background_campaign
+)
+from api.muse_routes import router as muse_router
 
 app = FastAPI(
     title="Autonomous Lead Intelligence System API",
@@ -23,30 +31,19 @@ app = FastAPI(
     version="2.0"
 )
 
+# CORS Middleware (Crucial for remote AI orchestration like MUSE AI and cloud webhooks)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount MUSE AI integration router
+app.include_router(muse_router)
+
 repo = LeadRepository()
-
-# Global Real-Time Scraping State
-SCRAPING_STATE = {
-    "is_running": False,
-    "current_agent": "Idle",
-    "prompt": "",
-    "target_count": 250,
-    "last_campaign_id": None,
-    "last_campaign_leads": [],
-    "last_event_time": "",
-    "logs": UI_LOG_BUFFER
-}
-
-def log_agent_activity(agent: str, message: str, level: str = "INFO"):
-    from datetime import datetime
-    now_str = datetime.now().strftime("%H:%M:%S")
-    SCRAPING_STATE["current_agent"] = agent
-    SCRAPING_STATE["last_event_time"] = now_str
-    
-    # Broadcast to Python logger so it goes to scraper.log and errors.log
-    mod_logger = logging.getLogger(agent)
-    log_func = getattr(mod_logger, level.lower(), mod_logger.info)
-    log_func(message)
 
 # Mount frontend directory if it exists
 frontend_dir = Path("frontend")
@@ -69,7 +66,23 @@ class FeedbackInjectionRequest(BaseModel):
     agency_type: Optional[str] = "b2b_lead_gen"
 
 @app.get("/")
-def root():
+def root(request: Request):
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return {
+            "status": "online",
+            "service": "Autonomous Multi-Agent Lead Gen System",
+            "version": "2.0",
+            "muse_api": {
+                "manifest": "/api/v1/muse/manifest.json",
+                "campaigns_start": "/api/v1/muse/campaigns/start",
+                "campaigns_stop": "/api/v1/muse/campaigns/stop",
+                "campaigns_status": "/api/v1/muse/campaigns/status",
+                "leads": "/api/v1/muse/leads",
+                "logs": "/api/v1/muse/logs",
+                "telemetry": "/api/v1/muse/telemetry"
+            }
+        }
     index_file = Path("frontend/index.html")
     if index_file.exists():
         return FileResponse(index_file)
@@ -78,7 +91,8 @@ def root():
         "service": "Autonomous Multi-Agent Lead Gen System",
         "endpoints": [
             "/api/campaigns", "/api/leads", "/api/export/csv", 
-            "/api/export/xlsx", "/api/telemetry", "/api/status", "/dashboard"
+            "/api/export/xlsx", "/api/telemetry", "/api/status", "/dashboard",
+            "/api/v1/muse/manifest.json"
         ]
     }
 
@@ -110,23 +124,32 @@ def get_telemetry():
     from core.llm_router import llm_router
     from config.settings import settings
     
-    current_cid = SCRAPING_STATE.get("last_campaign_id")
-    if current_cid:
+    is_running = SCRAPING_STATE.get("is_running", False)
+    current_cid = getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id")
+    live_leads = getattr(master_orchestrator, "active_verified_leads", [])
+    all_leads = repo.list_leads(limit=5000)
+
+    if is_running:
+        # LIVE RUNNING STATE: Count live verified hot leads directly as they are harvested!
+        hot_leads_count = len(live_leads)
+        active_records = getattr(master_orchestrator, "active_all_records", []) or live_leads
+        qualified_count = len(live_leads)
+        needs_review_count = sum(1 for l in active_records if getattr(l, "overall_priority", None) == PriorityTier.NEEDS_REVIEW)
+        rejected_count = sum(1 for l in active_records if getattr(l, "overall_priority", None) == PriorityTier.REJECTED)
+    elif current_cid:
         session_leads = repo.list_leads(campaign_id=current_cid, limit=1000)
         if not session_leads and SCRAPING_STATE.get("last_campaign_leads"):
             session_leads = SCRAPING_STATE["last_campaign_leads"]
-    elif SCRAPING_STATE.get("last_campaign_leads"):
-        session_leads = SCRAPING_STATE["last_campaign_leads"]
+        active_pool = session_leads if session_leads else all_leads
+        hot_leads_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) == PriorityTier.HOT_LEAD or (getattr(l, "verified_email", None) and (getattr(l, "total_score", 0) or getattr(l, "opportunity_score", 0) or 0) >= 75))
+        qualified_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) in (PriorityTier.HOT_LEAD, PriorityTier.QUALIFIED, PriorityTier.HIGH_POTENTIAL))
+        needs_review_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) == PriorityTier.NEEDS_REVIEW)
+        rejected_count = sum(1 for l in active_pool if getattr(l, "overall_priority", None) == PriorityTier.REJECTED)
     else:
-        session_leads = []
-
-    all_leads = repo.list_leads(limit=5000)
-    active_pool = session_leads if (current_cid or SCRAPING_STATE.get("is_running")) else all_leads
-
-    hot_leads_count = sum(1 for l in active_pool if l.overall_priority == PriorityTier.HOT_LEAD or (l.verified_email and (l.total_score or l.opportunity_score or 0) >= 75))
-    qualified_count = sum(1 for l in active_pool if l.overall_priority in (PriorityTier.HOT_LEAD, PriorityTier.QUALIFIED, PriorityTier.HIGH_POTENTIAL))
-    needs_review_count = sum(1 for l in active_pool if l.overall_priority == PriorityTier.NEEDS_REVIEW)
-    rejected_count = sum(1 for l in active_pool if l.overall_priority == PriorityTier.REJECTED)
+        hot_leads_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) == PriorityTier.HOT_LEAD or (getattr(l, "verified_email", None) and (getattr(l, "total_score", 0) or getattr(l, "opportunity_score", 0) or 0) >= 75))
+        qualified_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) in (PriorityTier.HOT_LEAD, PriorityTier.QUALIFIED, PriorityTier.HIGH_POTENTIAL))
+        needs_review_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) == PriorityTier.NEEDS_REVIEW)
+        rejected_count = sum(1 for l in all_leads if getattr(l, "overall_priority", None) == PriorityTier.REJECTED)
     
     conn = get_connection()
     c = conn.cursor()
@@ -193,45 +216,13 @@ def download_logs(kind: str = "scraper"):
     filename = "errors.log" if kind == "errors" else "scraper.log"
     return FileResponse(target_path, filename=filename, media_type="text/plain")
 
-import threading
-import traceback
-
-def _background_scraper(prompt: str, target: int):
-    SCRAPING_STATE["is_running"] = True
-    SCRAPING_STATE["prompt"] = prompt
-    SCRAPING_STATE["target_count"] = target
-    SCRAPING_STATE["last_campaign_leads"] = []
-    log_agent_activity("Master Orchestrator", f"Started scraping swarm targeting {target} hot leads for: '{prompt}'")
-    try:
-        result = master_orchestrator.run_campaign(prompt, target_count=target, on_event=log_agent_activity)
-        SCRAPING_STATE["last_campaign_id"] = result["campaign_id"]
-        SCRAPING_STATE["last_campaign_leads"] = result["leads"]
-        SCRAPING_STATE["last_campaign_all_records"] = result.get("all_records", result["leads"])
-        SCRAPING_STATE["last_campaign_total_discovered"] = result.get("total_discovered", len(result["leads"]))
-        log_agent_activity("Master Orchestrator", f"Scraping campaign finished: {len(result['leads'])} verified leads with emails collected.")
-    except Exception as e:
-        err_trace = traceback.format_exc()
-        log_agent_activity("Master Orchestrator", f"Campaign encountered error: {e}", level="ERROR")
-        logging.getLogger("MasterOrchestrator").error(f"Full traceback:\n{err_trace}")
-    finally:
-        SCRAPING_STATE["is_running"] = False
-        SCRAPING_STATE["current_agent"] = "Idle"
-
 @app.post("/api/campaigns/start")
 def start_campaign_background(req: CampaignRequest):
-    if SCRAPING_STATE["is_running"]:
-        return {"status": "already_running", "message": "Scraper is currently running."}
-    
-    t = threading.Thread(target=_background_scraper, args=(req.prompt, req.target_count or 250), daemon=True)
-    t.start()
-    return {"status": "started", "target_count": req.target_count or 250, "prompt": req.prompt}
+    return start_background_campaign(req.prompt, target_count=req.target_count or 25)
 
 @app.post("/api/campaigns/stop")
 def stop_campaign():
-    SCRAPING_STATE["is_running"] = False
-    SCRAPING_STATE["current_agent"] = "Stopped"
-    log_agent_activity("Master Orchestrator", "Scraper stopped by user.")
-    return {"status": "stopped"}
+    return stop_background_campaign()
 
 @app.post("/api/database/reset")
 def reset_database():
@@ -279,7 +270,13 @@ def list_leads(
     scope: str = "current",
     limit: int = Query(default=100, ge=1, le=1000)
 ):
-    target_campaign = campaign_id or SCRAPING_STATE.get("last_campaign_id")
+    is_running = SCRAPING_STATE.get("is_running", False)
+    if is_running and scope == "current":
+        live_leads = getattr(master_orchestrator, "active_verified_leads", [])
+        if live_leads:
+            return list(reversed(live_leads))[:limit]
+
+    target_campaign = campaign_id or getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id")
     if scope == "current" and target_campaign:
         session_leads = repo.list_leads(priority=priority, campaign_id=target_campaign, limit=limit)
         if session_leads:
@@ -336,26 +333,35 @@ def export_csv(
     campaign_id: Optional[str] = None,
     scope: str = "current"
 ):
-    target_campaign = campaign_id or SCRAPING_STATE.get("last_campaign_id")
+    target_campaign = campaign_id or getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id")
 
     if scope == "all":
-        leads = repo.list_leads(priority=priority, limit=2000)
-    elif target_campaign:
-        leads = repo.list_leads(priority=priority, campaign_id=target_campaign, limit=1000)
-        if not leads and SCRAPING_STATE.get("last_campaign_leads"):
-            leads = SCRAPING_STATE["last_campaign_leads"]
-    elif SCRAPING_STATE.get("last_campaign_leads"):
-        leads = SCRAPING_STATE["last_campaign_leads"]
+        leads = repo.list_leads(priority=priority, limit=3000)
     else:
-        leads = repo.list_leads(priority=priority, limit=1000)
+        # STRICT SESSION SCOPE: Only leads from the active or latest scraping run!
+        live_leads = getattr(master_orchestrator, "active_verified_leads", [])
+        if live_leads:
+            leads = list(live_leads)
+        elif SCRAPING_STATE.get("last_campaign_leads"):
+            leads = list(SCRAPING_STATE["last_campaign_leads"])
+        elif target_campaign:
+            leads = repo.list_leads(priority=priority, campaign_id=target_campaign, limit=1000)
+        else:
+            conn = repo._get_conn()
+            c = conn.cursor()
+            c.execute("SELECT campaign_id FROM leads WHERE campaign_id IS NOT NULL ORDER BY collected_at DESC LIMIT 1")
+            row = c.fetchone()
+            conn.close()
+            latest_cid = row["campaign_id"] if row else None
+            leads = repo.list_leads(priority=priority, campaign_id=latest_cid, limit=1000) if latest_cid else []
 
     # STRICT EMAIL RULE: "email sara kono lead nibe na" & must not be rejected
     leads = [
         l for l in leads
-        if (l.verified_email or l.email)
+        if (getattr(l, "verified_email", None) or getattr(l, "email", None))
         and str(l.verified_email or l.email).strip().lower() not in ["", "none", "nan", "null"]
         and "@" in str(l.verified_email or l.email)
-        and l.overall_priority != PriorityTier.REJECTED
+        and getattr(l, "overall_priority", None) != PriorityTier.REJECTED
     ]
 
     file_path = "exports/leads.csv"
@@ -374,20 +380,36 @@ def export_xlsx(
     scope='all': Exports full historical database.
     Strictly excludes leads without deliverable emails per user request: "email sara kono lead nibe na".
     """
-    target_campaign = campaign_id or SCRAPING_STATE.get("last_campaign_id")
+    target_campaign = campaign_id or getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id")
 
     if scope == "all":
         leads = repo.list_leads(priority=priority, limit=3000)
-    elif SCRAPING_STATE.get("last_campaign_all_records"):
-        leads = SCRAPING_STATE["last_campaign_all_records"]
-    elif target_campaign:
-        leads = repo.list_leads(priority=priority, campaign_id=target_campaign, limit=1000)
-        if not leads and SCRAPING_STATE.get("last_campaign_leads"):
-            leads = SCRAPING_STATE["last_campaign_leads"]
-    elif SCRAPING_STATE.get("last_campaign_leads"):
-        leads = SCRAPING_STATE["last_campaign_leads"]
     else:
-        leads = repo.list_leads(priority=priority, limit=1000)
+        # STRICT SESSION SCOPE: Only leads from the active or latest scraping run!
+        live_leads = getattr(master_orchestrator, "active_verified_leads", [])
+        if live_leads:
+            leads = list(live_leads)
+        elif SCRAPING_STATE.get("last_campaign_leads"):
+            leads = list(SCRAPING_STATE["last_campaign_leads"])
+        elif target_campaign:
+            leads = repo.list_leads(priority=priority, campaign_id=target_campaign, limit=1000)
+        else:
+            conn = repo._get_conn()
+            c = conn.cursor()
+            c.execute("SELECT campaign_id FROM leads WHERE campaign_id IS NOT NULL ORDER BY collected_at DESC LIMIT 1")
+            row = c.fetchone()
+            conn.close()
+            latest_cid = row["campaign_id"] if row else None
+            leads = repo.list_leads(priority=priority, campaign_id=latest_cid, limit=1000) if latest_cid else []
+
+    # STRICT EMAIL RULE: "email sara kono lead nibe na" & must not be rejected
+    leads = [
+        l for l in leads
+        if (getattr(l, "verified_email", None) or getattr(l, "email", None))
+        and str(l.verified_email or l.email).strip().lower() not in ["", "none", "nan", "null"]
+        and "@" in str(l.verified_email or l.email)
+        and getattr(l, "overall_priority", None) != PriorityTier.REJECTED
+    ]
 
     file_path = "exports/leads.xlsx"
     total_disc = SCRAPING_STATE.get("last_campaign_total_discovered", len(leads))

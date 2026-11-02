@@ -110,6 +110,15 @@ class MasterOrchestrator:
         self.outreach = OutreachAgent()
         self.memory = MemoryStore()
         self.evaluator = PipelineEvaluator()
+        self.stop_requested: bool = False
+        self.active_campaign_id: Optional[str] = None
+        self.active_verified_leads: List[LeadRecord] = []
+        self.active_all_records: List[LeadRecord] = []
+
+    def stop_campaign(self):
+        """Immediately signals running workers and loops to abort."""
+        self.stop_requested = True
+        logger.info("Campaign stop requested by controller.")
 
     def parse_campaign_prompt(self, raw_prompt: str) -> ParsedCampaignPlan:
         system_prompt = (
@@ -148,6 +157,8 @@ class MasterOrchestrator:
         on_event: Optional[Any] = None
     ) -> Dict[str, Any]:
         campaign_id = uuid4()
+        self.active_campaign_id = str(campaign_id)
+        self.stop_requested = False
         start_time = datetime.now(timezone.utc)
         logger.info(f"Starting campaign {campaign_id} for prompt: '{prompt}'")
         if on_event:
@@ -163,6 +174,8 @@ class MasterOrchestrator:
         # Step 2: Active Goal-Seeking Multi-Source Lead Harvesting Loop
         verified_leads: List[LeadRecord] = []
         all_campaign_records: List[LeadRecord] = []
+        self.active_verified_leads = verified_leads
+        self.active_all_records = all_campaign_records
         seen_domains = set()
         duplicates_removed_count = 0
         total_discovered_candidates = 0
@@ -206,6 +219,9 @@ class MasterOrchestrator:
 
         def process_candidate_worker(cand: Any) -> Optional[LeadRecord]:
             nonlocal duplicates_removed_count
+
+            if self.stop_requested:
+                return None
 
             with state_lock:
                 if len(verified_leads) >= limit:
@@ -407,17 +423,21 @@ class MasterOrchestrator:
             return lead
 
         def run_candidates_pool(candidates_list: List[Any]):
-            if not candidates_list:
+            if not candidates_list or self.stop_requested:
                 return
             with state_lock:
                 if len(verified_leads) >= limit:
                     return
 
-            # Run up to 8 parallel workers for high-speed multi-page crawling
-            max_workers = min(8, max(2, len(candidates_list)))
+            # Run up to 16 parallel workers for high-speed multi-page crawling
+            max_workers = min(16, max(4, len(candidates_list)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(process_candidate_worker, c): c for c in candidates_list}
                 for f in as_completed(futures):
+                    if self.stop_requested:
+                        for pending_f in futures:
+                            pending_f.cancel()
+                        break
                     with state_lock:
                         if len(verified_leads) >= limit:
                             # Stop early once target reached
@@ -435,11 +455,14 @@ class MasterOrchestrator:
         consecutive_empty_rounds = 0
 
         # First, process the initial candidate batch if already harvested
-        if initial_candidates:
+        if initial_candidates and not self.stop_requested:
             run_candidates_pool(initial_candidates)
 
         # Continuous Goal-Seeking Loop: Keeps harvesting fresh directory pages & search footprints until `len(verified_leads) >= limit`
         while len(verified_leads) < limit and round_idx < max_campaign_rounds:
+            if self.stop_requested:
+                logger.info("Campaign halted by stop request.")
+                break
             round_idx += 1
             needed = limit - len(verified_leads)
             batch_target = max(60, min(600, needed * 4))
@@ -468,6 +491,8 @@ class MasterOrchestrator:
                 q_batch = [search_queries_pool[(q_start + i) % pool_len] for i in range(4)]
 
                 for q in q_batch:
+                    if self.stop_requested:
+                        break
                     with state_lock:
                         if len(verified_leads) >= limit:
                             break

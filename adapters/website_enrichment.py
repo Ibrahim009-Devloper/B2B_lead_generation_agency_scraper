@@ -3,6 +3,7 @@ import re
 import json
 from typing import Dict, List, Optional, Any, Set, Tuple
 from urllib.parse import urljoin, urlparse
+from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field, field_validator
 import dns.resolver
@@ -630,13 +631,21 @@ class WebsiteEnrichmentAgent:
                 if len(sub_links) >= 3:
                     break
 
-        for link in sub_links[:3]:
-            sub_html = self.fetch_page(link)
-            if sub_html and len(sub_html) > 200:
-                sub_text = self.compress_html_payload(sub_html, max_chars=1800)
-                all_text_snippets.append(f"--- Subpage ({link}) ---\n{sub_text}")
-                extracted_emails.extend(self.extract_emails(sub_html, target_domain=base_url))
-                extracted_phones.extend(self.extract_phones(sub_html))
+        target_sub_links = sub_links[:3]
+        if target_sub_links:
+            def _fetch_sub(link: str):
+                try:
+                    return link, self.fetch_page(link)
+                except Exception:
+                    return link, None
+
+            with ThreadPoolExecutor(max_workers=len(target_sub_links)) as sub_executor:
+                for link, sub_html in sub_executor.map(_fetch_sub, target_sub_links):
+                    if sub_html and len(sub_html) > 200:
+                        sub_text = self.compress_html_payload(sub_html, max_chars=1800)
+                        all_text_snippets.append(f"--- Subpage ({link}) ---\n{sub_text}")
+                        extracted_emails.extend(self.extract_emails(sub_html, target_domain=base_url))
+                        extracted_phones.extend(self.extract_phones(sub_html))
 
         combined_text = "\n\n".join(all_text_snippets)
 
@@ -656,18 +665,9 @@ class WebsiteEnrichmentAgent:
                 zero_token_rejected=True
             )
 
-        # ---------------- EMAIL CHECK & RECOVERY ----------------
+        # ---------------- EMAIL CHECK & TECHNICAL VERIFICATION (100% REAL EMAILS ONLY) ----------------
         unique_emails = list(set(extracted_emails))
-        email_hidden_on_site = False
         clean_domain = normalize_domain(base_url) or ""
-        has_mx = self.check_mx_record(clean_domain) if clean_domain else False
-
-        is_b2b_domain_or_passed = passed_layer1 or any(
-            t in base_url.lower() for t in [
-                "coldoutreach", "appointmentsetting", "leadgen", "lead-gen",
-                "outbound", "prospecting", "pipeline", "growthpartner", "demandgen", "b2b"
-            ]
-        )
 
         # Extract LinkedIn profile URL if present in HTML/text
         extracted_linkedin = None
@@ -677,55 +677,45 @@ class WebsiteEnrichmentAgent:
                 extracted_linkedin = m.group(0)
                 break
 
+        # Zero-Email Drop Rule: Drop immediately if no real email exists on official assets (0 LLM Token Cost)
         if not unique_emails:
-            # Check if domain has active MX server and B2B signals
-            if not has_mx or not is_b2b_domain_or_passed:
-                logger.info(f"Zero-Email Drop: No email and no valid MX/B2B signals on {raw_website}. Dropping (0 LLM tokens burned).")
-                return WebsiteSignalExtraction(
-                    clean_business_name=og_brand or self._format_domain_brand(base_url),
-                    is_agency=False,
-                    is_real_business=False,
-                    is_verified_target=False,
-                    agency_type=AgencyType.NON_ICP,
-                    target_verification_status="REJECTED: No email found on official assets",
-                    factual_confidence=0.0,
-                    non_agency_reason="Zero-Email Drop: No email address found on official assets (0 LLM tokens burned)",
-                    zero_token_rejected=True
-                )
-            else:
-                # Valid B2B Agency hiding email behind Calendly/Form, with active MX server!
-                email_hidden_on_site = True
-                primary_email = f"info@{clean_domain}"
-                backup_emails = [f"contact@{clean_domain}", f"hello@{clean_domain}"]
-                email_cat = "Generic Business Email (Inferred MX)"
-        else:
-            valid_mx_emails = []
-            for em in unique_emails:
-                em_dom = em.split("@")[-1].lower().strip()
-                if self.check_mx_record(em_dom):
-                    valid_mx_emails.append(em)
+            logger.info(f"Zero-Email Drop: No email address found on {raw_website}. Dropping (0 LLM tokens burned).")
+            return WebsiteSignalExtraction(
+                clean_business_name=og_brand or self._format_domain_brand(base_url),
+                is_agency=False,
+                is_real_business=False,
+                is_verified_target=False,
+                agency_type=AgencyType.NON_ICP,
+                target_verification_status="REJECTED: No email found on website",
+                factual_confidence=0.0,
+                non_agency_reason="Zero-Email Drop: No email address found on official assets (0 LLM tokens burned)",
+                zero_token_rejected=True
+            )
 
-            if not valid_mx_emails:
-                if not has_mx or not is_b2b_domain_or_passed:
-                    logger.info(f"Zero-Email Drop: Emails on {raw_website} have no active DNS MX mail servers. Dropping (0 LLM tokens burned).")
-                    return WebsiteSignalExtraction(
-                        clean_business_name=og_brand or self._format_domain_brand(base_url),
-                        is_agency=False,
-                        is_real_business=False,
-                        is_verified_target=False,
-                        agency_type=AgencyType.NON_ICP,
-                        target_verification_status="REJECTED: Invalid DNS MX mail server",
-                        factual_confidence=0.0,
-                        non_agency_reason="Zero-Email Drop: Found emails have invalid DNS MX records (0 LLM tokens burned)",
-                        zero_token_rejected=True
-                    )
-                else:
-                    email_hidden_on_site = True
-                    primary_email = f"info@{clean_domain}"
-                    backup_emails = [f"contact@{clean_domain}"]
-                    email_cat = "Generic Business Email (Inferred MX)"
-            else:
-                primary_email, backup_emails, email_cat = self._prioritize_emails(valid_mx_emails)
+        # DNS MX Check on real extracted emails
+        valid_mx_emails = []
+        for em in unique_emails:
+            em_dom = em.split("@")[-1].lower().strip()
+            if self.check_mx_record(em_dom):
+                valid_mx_emails.append(em)
+
+        if not valid_mx_emails:
+            logger.info(f"Zero-Email Drop: Emails on {raw_website} have no active DNS MX mail servers. Dropping (0 LLM tokens burned).")
+            return WebsiteSignalExtraction(
+                clean_business_name=og_brand or self._format_domain_brand(base_url),
+                is_agency=False,
+                is_real_business=False,
+                is_verified_target=False,
+                agency_type=AgencyType.NON_ICP,
+                target_verification_status="REJECTED: Invalid DNS MX mail server",
+                factual_confidence=0.0,
+                non_agency_reason="Zero-Email Drop: Found emails have invalid DNS MX records (0 LLM tokens burned)",
+                zero_token_rejected=True
+            )
+
+        # Prioritize real, deliverable emails
+        primary_email, backup_emails, email_cat = self._prioritize_emails(valid_mx_emails)
+        email_hidden_on_site = False
 
         # Python-First Email Priority Selection & Classification
         compressed_text = "\n\n".join(all_text_snippets)[:6000]

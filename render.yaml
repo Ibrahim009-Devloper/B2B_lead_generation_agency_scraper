@@ -54,3 +54,8 @@ services:
       - key: DEEPSEEK_API_KEY
         sync: false
 
+      # Optional MUSE AI API Key for Securing Endpoints (Set in Render Dashboard if desired)
+      - key: MUSE_API_KEY
+        sync: false
+
+
