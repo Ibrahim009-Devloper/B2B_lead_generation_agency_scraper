@@ -11,6 +11,7 @@ from core.orchestrator import master_orchestrator
 from core.logger import SCRAPER_LOG_PATH, ERRORS_LOG_PATH
 from api.exporter import lead_exporter
 from learning.memory_store import memory_store
+from core.memory_guard import get_memory_stats
 from api.state import (
     SCRAPING_STATE,
     log_agent_activity,
@@ -55,6 +56,7 @@ class MuseCampaignStartRequest(BaseModel):
     target_count: Optional[int] = Field(25, ge=1, le=500, description="Target number of qualified leads with verified emails")
     agency_types: Optional[List[str]] = Field(None, description="Optional target niches, e.g. ['b2b_lead_gen', 'cold_email', 'local_seo']")
     geo: Optional[str] = Field(None, description="Geographic filter, e.g. 'USA', 'UK', 'Remote'")
+    webhook_url: Optional[str] = Field(None, description="Optional callback URL. If provided, the system will POST all verified leads directly to this URL upon completion, completely eliminating the need for periodic polling and saving LLM tokens.")
 
 class MuseFeedbackRequest(BaseModel):
     rule: str = Field(..., description="Rule or negative signal to teach the model, e.g. 'Reject agencies focused solely on influencer PR'")
@@ -93,7 +95,8 @@ def get_muse_manifest(request: Request):
                         "prompt": {"type": "string", "description": "Search target description (e.g. 'B2B lead generation agencies in USA')"},
                         "target_count": {"type": "integer", "default": 25, "description": "Number of verified hot leads with deliverable emails to harvest"},
                         "agency_types": {"type": "array", "items": {"type": "string"}, "description": "Optional agency categories"},
-                        "geo": {"type": "string", "description": "Optional target country or region"}
+                        "geo": {"type": "string", "description": "Optional target country or region"},
+                        "webhook_url": {"type": "string", "description": "Optional callback URL to receive the complete leads payload automatically upon finish (0 AI polling token cost)"}
                     },
                     "required": ["prompt"]
                 }
@@ -195,13 +198,14 @@ def muse_start_campaign(req: MuseCampaignStartRequest):
         effective_prompt = f"{effective_prompt} in {req.geo}"
     
     target = req.target_count or 25
-    result = start_background_campaign(effective_prompt, target_count=target)
+    result = start_background_campaign(effective_prompt, target_count=target, webhook_url=req.webhook_url)
     
     return {
         "status": result["status"],
         "message": result["message"],
         "prompt": effective_prompt,
         "target_count": target,
+        "webhook_url": req.webhook_url,
         "is_running": SCRAPING_STATE["is_running"]
     }
 
@@ -241,7 +245,8 @@ def muse_get_campaign_status():
         "progress_percent": min(100.0, progress_pct),
         "total_scraped_domains": total_scraped_domains,
         "last_event_time": SCRAPING_STATE.get("last_event_time", ""),
-        "campaign_id": getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id")
+        "campaign_id": getattr(master_orchestrator, "active_campaign_id", None) or SCRAPING_STATE.get("last_campaign_id"),
+        "memory": {**get_memory_stats(), "limit_mb": 512}
     }
 
 # 3. Live Logs & Diagnostics Endpoints
@@ -440,7 +445,8 @@ def muse_get_telemetry():
             "groq": {"active": groq_active, "total": len(llm_router.groq_pool.keys)},
             "gemini": {"active": gemini_active, "total": len(llm_router.gemini_pool.keys)},
             "deepseek": {"active": deepseek_active, "total": 1 if settings.DEEPSEEK_API_KEY else 0}
-        }
+        },
+        "memory": {**get_memory_stats(), "limit_mb": 512}
     }
 
 # 6. Reinforcement Feedback

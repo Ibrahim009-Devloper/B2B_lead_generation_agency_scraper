@@ -25,4 +25,6 @@ rapidfuzz>=3.6.0
 
 # Configuration & Utilities
 python-dotenv>=1.0.0
+psutil>=5.9.0
+
 

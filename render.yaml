@@ -17,6 +17,9 @@ services:
         value: INFO
       - key: DEFAULT_DAILY_TOKEN_LIMIT
         value: "500000"
+      - key: MAX_SCRAPING_WORKERS
+        value: "3"
+
 
       # Database Configuration (Uses local sqlite by default)
       - key: DATABASE_URL

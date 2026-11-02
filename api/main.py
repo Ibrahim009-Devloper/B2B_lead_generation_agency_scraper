@@ -17,6 +17,7 @@ from api.exporter import lead_exporter
 from learning.memory_store import memory_store
 from learning.evaluator import pipeline_evaluator
 from core.logger import setup_logging, SCRAPER_LOG_PATH, ERRORS_LOG_PATH, UI_LOG_BUFFER
+from core.memory_guard import get_memory_stats
 from api.state import (
     SCRAPING_STATE,
     log_agent_activity,
@@ -116,7 +117,8 @@ def get_system_status():
         "current_agent": SCRAPING_STATE["current_agent"],
         "groq_pool": {"active": groq_active, "total": len(llm_router.groq_pool.keys)},
         "gemini_pool": {"active": gemini_active, "total": len(llm_router.gemini_pool.keys)},
-        "deepseek_pool": {"active": deepseek_active, "total": 1, "model": settings.DEEPSEEK_MODEL}
+        "deepseek_pool": {"active": deepseek_active, "total": 1, "model": settings.DEEPSEEK_MODEL},
+        "memory": {**get_memory_stats(), "limit_mb": 512}
     }
 
 @app.get("/api/telemetry")
@@ -175,7 +177,8 @@ def get_telemetry():
         "groq_total": len(llm_router.groq_pool.keys),
         "gemini_active": gemini_active,
         "gemini_total": len(llm_router.gemini_pool.keys),
-        "deepseek_active": deepseek_active
+        "deepseek_active": deepseek_active,
+        "memory": {**get_memory_stats(), "limit_mb": 512}
     }
 
 @app.get("/api/agent-activity")

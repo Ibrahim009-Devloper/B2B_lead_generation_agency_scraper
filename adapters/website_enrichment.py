@@ -244,7 +244,9 @@ class WebsiteEnrichmentAgent:
                         verify=False
                     )
                 if resp.status_code == 200:
-                    return resp.text
+                    text = resp.text or ""
+                    # Memory protection: Cap raw HTML to 400KB max per page
+                    return text[:400_000] if len(text) > 400_000 else text
             except Exception as e:
                 logger.debug(f"curl_cffi fetch exception for {url}: {e}")
 
@@ -253,7 +255,8 @@ class WebsiteEnrichmentAgent:
             with httpx.Client(headers=self.headers, verify=False, timeout=self.timeout) as client:
                 resp = client.get(url, follow_redirects=True)
                 if resp.status_code == 200:
-                    return resp.text
+                    text = resp.text or ""
+                    return text[:400_000] if len(text) > 400_000 else text
         except Exception as e:
             logger.debug(f"HTTPX fetch failed for {url}: {e}")
         return None
@@ -292,6 +295,7 @@ class WebsiteEnrichmentAgent:
 
         # Prioritize: 1 Contact link, 1 Leadership link, 1 Service link
         ordered = list(contact_links)[:1] + list(leadership_links)[:1] + list(service_links)[:1]
+        soup.decompose()
         return ordered[:3]
 
     def extract_phones(self, html: str) -> List[str]:
@@ -313,6 +317,7 @@ class WebsiteEnrichmentAgent:
             clean = re.sub(r"[^\d+]", "", m)
             if 10 <= len(clean) <= 15:
                 phones.add(m.strip())
+        soup.decompose()
         return list(phones)
 
     def compress_html_payload(self, html: str, max_chars: int = 3500) -> str:
@@ -332,6 +337,7 @@ class WebsiteEnrichmentAgent:
 
         # Extract clean visible body text preserving header and footer
         text = soup.get_text(separator=" ", strip=True)
+        soup.decompose()
         text = re.sub(r"\s+", " ", text)
         return text[:max_chars]
 
@@ -587,6 +593,7 @@ class WebsiteEnrichmentAgent:
             parts = re.split(r"[-|:–—]", title_text)
             if parts and len(parts[0].strip()) < 35 and not any(w in parts[0].lower() for w in ["best", "top", "home", "welcome", "list", "ranking"]):
                 og_brand = parts[0].strip()
+        soup_home.decompose() # Instantly release BeautifulSoup DOM from memory
 
         # 1. Fast Negative Keyword & Parked Domain Check on Homepage
         low_home = home_text.lower()
@@ -632,20 +639,20 @@ class WebsiteEnrichmentAgent:
                     break
 
         target_sub_links = sub_links[:3]
-        if target_sub_links:
-            def _fetch_sub(link: str):
-                try:
-                    return link, self.fetch_page(link)
-                except Exception:
-                    return link, None
-
-            with ThreadPoolExecutor(max_workers=len(target_sub_links)) as sub_executor:
-                for link, sub_html in sub_executor.map(_fetch_sub, target_sub_links):
-                    if sub_html and len(sub_html) > 200:
-                        sub_text = self.compress_html_payload(sub_html, max_chars=1800)
-                        all_text_snippets.append(f"--- Subpage ({link}) ---\n{sub_text}")
-                        extracted_emails.extend(self.extract_emails(sub_html, target_domain=base_url))
-                        extracted_phones.extend(self.extract_phones(sub_html))
+        # Sequential subpage crawl (avoids nested thread pool explosion inside 512MB RAM container)
+        for link in target_sub_links:
+            # Early exit: If we already found a valid email on homepage/contact, avoid unnecessary subpage crawls
+            if extracted_emails and len(all_text_snippets) >= 2:
+                break
+            try:
+                sub_html = self.fetch_page(link)
+                if sub_html and len(sub_html) > 200:
+                    sub_text = self.compress_html_payload(sub_html, max_chars=1800)
+                    all_text_snippets.append(f"--- Subpage ({link}) ---\n{sub_text}")
+                    extracted_emails.extend(self.extract_emails(sub_html, target_domain=base_url))
+                    extracted_phones.extend(self.extract_phones(sub_html))
+            except Exception:
+                pass
 
         combined_text = "\n\n".join(all_text_snippets)
 

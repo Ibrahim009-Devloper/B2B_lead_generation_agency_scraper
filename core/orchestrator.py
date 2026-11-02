@@ -1,3 +1,4 @@
+import os
 import logging
 import re
 import threading
@@ -6,6 +7,8 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field, field_validator
+
+from core.memory_guard import check_memory_and_cleanup, force_garbage_collection, get_memory_stats
 
 from core.schemas import (
     LeadRecord, CampaignGoal, AgencyType, PriorityTier, VerificationStatus, LeadClassification
@@ -429,8 +432,8 @@ class MasterOrchestrator:
                 if len(verified_leads) >= limit:
                     return
 
-            # Run up to 16 parallel workers for high-speed multi-page crawling
-            max_workers = min(16, max(4, len(candidates_list)))
+            # Concurrency strictly capped to 3 workers max to guarantee rock-solid stability in Render's 512MB RAM environment
+            max_workers = min(int(os.getenv("MAX_SCRAPING_WORKERS", "3")), max(1, len(candidates_list)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(process_candidate_worker, c): c for c in candidates_list}
                 for f in as_completed(futures):
@@ -449,6 +452,10 @@ class MasterOrchestrator:
                     except Exception as exc:
                         logger.debug(f"Candidate worker notice: {exc}")
 
+            # Memory safety check and garbage collection after candidate batch completes
+            check_memory_and_cleanup(threshold_mb=340.0)
+            force_garbage_collection()
+
         # Step 2: Continuous Goal-Seeking Multi-Batch Harvesting Loop
         max_campaign_rounds = 35
         round_idx = 0
@@ -465,7 +472,8 @@ class MasterOrchestrator:
                 break
             round_idx += 1
             needed = limit - len(verified_leads)
-            batch_target = max(60, min(600, needed * 4))
+            # Lean batching: 12 to 30 candidates per round to prevent memory bloat
+            batch_target = max(12, min(30, needed * 2))
 
             if on_event:
                 on_event(
