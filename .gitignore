@@ -1,0 +1,111 @@
+# =========================================================================
+# Python & Virtual Environments
+# =========================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# =========================================================================
+# Testing & Coverage
+# =========================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# =========================================================================
+# Secrets & Environment Variables (CRITICAL)
+# =========================================================================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+*.crt
+
+# Keep example template committed
+!.env.example
+
+# =========================================================================
+# Databases & Local State
+# =========================================================================
+*.db
+*.sqlite
+*.sqlite3
+lead_gen.db
+leads_database.db
+crawl_state.json
+
+# =========================================================================
+# Logs
+# =========================================================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================================================================
+# Scraped Output, Exports & Spreadsheets
+# =========================================================================
+exports/
+*.xlsx
+*.xls
+*.csv
+clutch_sample.html
+
+# =========================================================================
+# Frontend / Node (if applicable)
+# =========================================================================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/build/
+
+# =========================================================================
+# IDE & Operating System
+# =========================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
