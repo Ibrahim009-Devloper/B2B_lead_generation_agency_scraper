@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: b2b-lead-generation-agent
+    runtime: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/status
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DEFAULT_DAILY_TOKEN_LIMIT
+        value: "500000"
+
+      # Database Configuration (Uses local sqlite by default)
+      - key: DATABASE_URL
+        value: sqlite:///./lead_gen.db
+
+      # Groq API Keys (Configure these in your Render Environment Variables)
+      - key: GROQ_API_KEY_1
+        sync: false
+      - key: GROQ_API_KEY_2
+        sync: false
+      - key: GROQ_API_KEY_3
+        sync: false
+      - key: GROQ_API_KEY_4
+        sync: false
+      - key: GROQ_API_KEY_5
+        sync: false
+
+      # Gemini API Keys (Configure these in your Render Environment Variables)
+      - key: GEMINI_API_KEY_1
+        sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
+      - key: GEMINI_API_KEY_3
+        sync: false
+      - key: GEMINI_API_KEY_4
+        sync: false
+      - key: GEMINI_API_KEY_5
+        sync: false
+
+      # Optional DeepSeek API Key
+      - key: DEEPSEEK_API_KEY
+        sync: false
+

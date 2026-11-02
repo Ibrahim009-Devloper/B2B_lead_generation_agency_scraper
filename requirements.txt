@@ -1,0 +1,28 @@
+# Core API & ASGI Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+
+# HTTP & Web Scraping (curl_cffi bypasses Cloudflare/fingerprinting)
+curl_cffi>=0.7.0
+beautifulsoup4>=4.12.0
+httpx>=0.27.0
+ddgs>=6.0.0
+
+# Networking & DNS MX Verification
+dnspython>=2.6.0
+phonenumbers>=8.13.0
+
+# AI & LLM Providers (Groq, Gemini, DeepSeek/OpenAI)
+groq>=0.9.0
+google-genai>=0.1.0
+openai>=1.20.0
+
+# Data Processing & Spreadsheet Exports
+pandas>=2.2.0
+openpyxl>=3.1.2
+rapidfuzz>=3.6.0
+
+# Configuration & Utilities
+python-dotenv>=1.0.0
+
