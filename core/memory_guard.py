@@ -43,8 +43,14 @@ def check_memory_and_cleanup(threshold_mb: float = 340.0) -> bool:
             f"MEMORY GUARD: High memory pressure detected ({rss} MB / 512 MB limit). "
             f"Triggering immediate aggressive garbage collection..."
         )
-        # Run gc collection across all generations
+        # Run gc collection across all generations and trim Linux heap
         collected = gc.collect()
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass
         new_stats = get_memory_stats()
         new_rss = new_stats.get("rss_mb", 0.0)
         logger.info(f"MEMORY GUARD: Collected {collected} unreachable objects. RAM dropped from {rss} MB to {new_rss} MB.")
@@ -53,6 +59,13 @@ def check_memory_and_cleanup(threshold_mb: float = 340.0) -> bool:
     return False
 
 def force_garbage_collection() -> None:
-    """Explicitly runs garbage collector to release cyclic references."""
+    """Explicitly runs garbage collector and trims OS heap memory on Linux."""
     gc.collect()
+    # On Linux (Render), force glibc to return freed heap memory back to the kernel
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
 

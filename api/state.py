@@ -87,7 +87,8 @@ def _background_scraper_worker(prompt: str, target: int, webhook_url: Optional[s
         result = master_orchestrator.run_campaign(prompt, target_count=target, on_event=log_agent_activity)
         SCRAPING_STATE["last_campaign_id"] = result["campaign_id"]
         SCRAPING_STATE["last_campaign_leads"] = result["leads"]
-        SCRAPING_STATE["last_campaign_all_records"] = result.get("all_records", result["leads"])
+        # Keep bounded to prevent keeping hundreds of heavy LeadRecord objects in global state
+        SCRAPING_STATE["last_campaign_all_records"] = (result.get("all_records") or result.get("leads") or [])[:30]
         SCRAPING_STATE["last_campaign_total_discovered"] = result.get("total_discovered", len(result["leads"]))
         log_agent_activity("Master Orchestrator", f"Scraping campaign finished: {len(result['leads'])} verified leads with emails collected.")
         

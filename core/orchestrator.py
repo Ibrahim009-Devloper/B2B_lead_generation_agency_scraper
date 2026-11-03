@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field, field_validator
 
 from core.memory_guard import check_memory_and_cleanup, force_garbage_collection, get_memory_stats
+from core.sheet_streamer import sheet_streamer
 
 from core.schemas import (
     LeadRecord, CampaignGoal, AgencyType, PriorityTier, VerificationStatus, LeadClassification
@@ -164,6 +165,8 @@ class MasterOrchestrator:
         self.stop_requested = False
         start_time = datetime.now(timezone.utc)
         logger.info(f"Starting campaign {campaign_id} for prompt: '{prompt}'")
+        # Ensure rate-limited Google Sheet background streamer is active
+        sheet_streamer.start()
         if on_event:
             on_event("Master Orchestrator", f"Campaign initialized for: '{prompt}'")
 
@@ -240,6 +243,13 @@ class MasterOrchestrator:
 
         # Thread-safe lock for campaign state updates
         state_lock = threading.Lock()
+        MAX_RECENT_RECORDS_IN_MEMORY = 30
+
+        def _append_recent_record(rec: LeadRecord):
+            """Bounded in-memory buffer to prevent unbounded RAM growth during long runs."""
+            if len(all_campaign_records) >= MAX_RECENT_RECORDS_IN_MEMORY:
+                all_campaign_records.pop(0)
+            all_campaign_records.append(rec)
 
         def process_candidate_worker(cand: Any) -> Optional[LeadRecord]:
             nonlocal duplicates_removed_count
@@ -321,8 +331,7 @@ class MasterOrchestrator:
                 )
                 with state_lock:
                     self.repo.record_scraped_domain(dom, status=db_status)
-                    if len(all_campaign_records) < 20:
-                        all_campaign_records.append(rej_lead)
+                    _append_recent_record(rej_lead)
                 if on_event:
                     if is_layer1_drop:
                         on_event("Harvester Agent", f"Dropped {cand.business_name} ({dom}) - Layer 1 filter: {rec_reason} (0 tokens burned).")
@@ -390,7 +399,7 @@ class MasterOrchestrator:
                 lead.target_verification_status = f"REJECTED: {enrichment.non_agency_reason or 'Failed AI gatekeeper'}"
                 with state_lock:
                     self.repo.record_scraped_domain(dom, status="rejected_ai_gate")
-                    all_campaign_records.append(lead)
+                    _append_recent_record(lead)
                 if on_event:
                     on_event("Verification Agent", f"AI Gatekeeper rejected {clean_name}: {enrichment.non_agency_reason or 'Not target agency'}")
                 return None
@@ -410,7 +419,7 @@ class MasterOrchestrator:
                 with state_lock:
                     self.repo.save_lead(lead)
                     self.repo.record_scraped_domain(dom, status=lead.overall_priority.value, lead_id=str(lead.lead_id))
-                    all_campaign_records.append(lead)
+                    _append_recent_record(lead)
                 if on_event:
                     on_event("Harvester Agent", f"Preserved B2B agency {clean_name} ({dom}) - email hidden behind booking form. Routed to {lead.lead_classification.value}.")
                 return None
@@ -424,7 +433,7 @@ class MasterOrchestrator:
                 lead.target_verification_status = "CONTACT_RESEARCH_REQUIRED"
                 with state_lock:
                     self.repo.record_scraped_domain(dom, status="rejected_invalid_mx")
-                    all_campaign_records.append(lead)
+                    _append_recent_record(lead)
                 if on_event:
                     on_event("Verification Agent", f"Dropped {clean_name}: DNS MX check failed for email {lead.email}")
                 return None
@@ -434,7 +443,7 @@ class MasterOrchestrator:
             if lead.overall_priority == PriorityTier.REJECTED:
                 with state_lock:
                     self.repo.record_scraped_domain(dom, status="rejected_low_score")
-                    all_campaign_records.append(lead)
+                    _append_recent_record(lead)
                 if on_event:
                     on_event("The Judge", f"Dropped {clean_name}: Score {lead.total_score} below minimum threshold.")
                 return None
@@ -445,14 +454,17 @@ class MasterOrchestrator:
                     on_event("Outreach Agent", f"Crafted bespoke outreach hook for {clean_name}...")
                 lead = self.outreach.generate_outreach(lead)
 
-            # Persist verified lead to SQLite database
+            # Persist verified lead to SQLite database & stream to Google Sheet
             with state_lock:
                 if len(verified_leads) >= limit:
                     return None
                 self.repo.save_lead(lead)
                 self.repo.record_scraped_domain(dom, status=lead.overall_priority.value, lead_id=str(lead.lead_id))
+                self.repo.record_scraped_email(lead.verified_email or lead.email, domain=dom)
                 verified_leads.append(lead)
-                all_campaign_records.append(lead)
+                _append_recent_record(lead)
+                # Stream to Google Sheets (5x/min buffer)
+                sheet_streamer.enqueue_lead(lead)
 
             if on_event:
                 on_event("The Judge", f"[HOT LEAD] [{len(verified_leads)}/{limit}] Qualified Lead Collected: {clean_name} ({lead.verified_email})")

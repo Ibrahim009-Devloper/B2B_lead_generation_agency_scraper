@@ -347,7 +347,7 @@ def muse_get_live_activity(limit: int = Query(50, ge=1, le=100)):
     """
     Returns the real-time event buffer captured by the orchestrator (agent step-by-step actions).
     """
-    buffer = SCRAPING_STATE.get("logs", [])
+    buffer = list(SCRAPING_STATE.get("logs", []))
     recent = buffer[:limit]
     return {
         "status": "ok",

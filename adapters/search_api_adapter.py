@@ -124,6 +124,7 @@ class SearchApiAdapter(SourceAdapter):
                     ))
                     if len(candidates) >= limit:
                         break
+                soup.decompose()
             except Exception as e:
                 logger.debug(f"Bing search notice for query '{query}': {e}")
                 break

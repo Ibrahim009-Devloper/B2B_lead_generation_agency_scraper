@@ -171,6 +171,17 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_scraped_domain ON scraped_domains(domain)")
 
+    # Lifetime Email Deduplication Table (hash-based, ultra-compact < 100 bytes/row)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS scraped_emails (
+        email_hash TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        domain TEXT,
+        scraped_at TEXT NOT NULL
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_scraped_email_val ON scraped_emails(email)")
+
     # Incremental Crawl State (Directory pagination)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS crawl_state (
@@ -292,12 +303,34 @@ class LeadRepository:
         if not email or "@" not in email:
             return False
         clean_email = email.strip().lower()
+        e_hash = hashlib.sha256(clean_email.encode("utf-8")).hexdigest()
         conn = self._get_conn()
         cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM scraped_emails WHERE email_hash = ? OR LOWER(email) = ? LIMIT 1", (e_hash, clean_email))
+        if cursor.fetchone():
+            conn.close()
+            return True
         cursor.execute("SELECT 1 FROM leads WHERE LOWER(email) = ? OR LOWER(verified_email) = ? LIMIT 1", (clean_email, clean_email))
         row = cursor.fetchone()
         conn.close()
         return row is not None
+
+    def record_scraped_email(self, email: Optional[str], domain: Optional[str] = None):
+        """Records email hash for lifetime deduplication without storing full lead objects."""
+        if not email or "@" not in email:
+            return
+        clean_email = email.strip().lower()
+        e_hash = hashlib.sha256(clean_email.encode("utf-8")).hexdigest()
+        now_str = utc_now_iso()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO scraped_emails (email_hash, email, domain, scraped_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(email_hash) DO NOTHING
+        """, (e_hash, clean_email, domain or "", now_str))
+        conn.commit()
+        conn.close()
 
     def record_scraped_domain(self, domain: Optional[str], status: str, lead_id: Optional[str] = None):
         if not domain:
@@ -317,16 +350,14 @@ class LeadRepository:
         conn.commit()
         conn.close()
 
-    # ---------------- Incremental Crawl State ----------------
+    # ---------------- Incremental Crawl State (scraped_pages.json) ----------------
     def get_crawl_page(self, source_name: str) -> int:
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute("SELECT last_page FROM crawl_state WHERE source_name = ?", (source_name,))
-        row = cursor.fetchone()
-        conn.close()
-        return row["last_page"] if row else 1
+        from core.pagination_state import pagination_manager
+        return pagination_manager.get_page(source_name, default=1)
 
     def update_crawl_page(self, source_name: str, next_page: int):
+        from core.pagination_state import pagination_manager
+        pagination_manager.set_page(source_name, next_page)
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute("""
@@ -551,25 +582,12 @@ class LeadRepository:
         return [self._row_to_lead(r) for r in rows]
 
     def get_crawl_page(self, source_name: str) -> int:
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute("SELECT last_page FROM crawl_state WHERE source_name = ?", (source_name,))
-        row = cursor.fetchone()
-        conn.close()
-        if row and row["last_page"]:
-            return row["last_page"]
-        # Fallback to crawl_state.json if available
-        try:
-            state_file = Path("crawl_state.json")
-            if state_file.exists():
-                with open(state_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data.get(source_name, 1)
-        except Exception:
-            pass
-        return 1
+        from core.pagination_state import pagination_manager
+        return pagination_manager.get_page(source_name, default=1)
 
     def set_crawl_page(self, source_name: str, page: int):
+        from core.pagination_state import pagination_manager
+        pagination_manager.set_page(source_name, page)
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute("""
@@ -581,18 +599,6 @@ class LeadRepository:
         """, (source_name, page, utc_now_iso()))
         conn.commit()
         conn.close()
-        # Mirror to crawl_state.json for visibility and persistence across runs
-        try:
-            state_file = Path("crawl_state.json")
-            data = {}
-            if state_file.exists():
-                with open(state_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            data[source_name] = page
-            with open(state_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except Exception:
-            pass
 
     def _row_to_lead(self, row: sqlite3.Row) -> LeadRecord:
         d = dict(row)

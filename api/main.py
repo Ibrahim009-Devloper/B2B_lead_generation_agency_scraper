@@ -1,11 +1,12 @@
 import os
 import sys
+import time
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -16,9 +17,11 @@ from core.orchestrator import master_orchestrator
 from api.exporter import lead_exporter
 from learning.memory_store import memory_store
 from learning.evaluator import pipeline_evaluator
-from core.logger import setup_logging, SCRAPER_LOG_PATH, ERRORS_LOG_PATH, UI_LOG_BUFFER
+from core.logger import setup_logging, SCRAPER_LOG_PATH, ERRORS_LOG_PATH, UI_LOG_BUFFER, clear_all_logs
 from core.memory_guard import get_memory_stats
 from core.keep_alive import keep_alive_engine
+from core.sheet_streamer import sheet_streamer
+from core.pagination_state import pagination_manager
 from api.state import (
     SCRAPING_STATE,
     log_agent_activity,
@@ -26,6 +29,8 @@ from api.state import (
     stop_background_campaign
 )
 from api.muse_routes import router as muse_router
+
+APP_START_TIME = time.time()
 
 app = FastAPI(
     title="Autonomous Lead Intelligence System API",
@@ -57,8 +62,39 @@ async def capture_host_for_keep_alive(request: Request, call_next):
     return response
 
 @app.on_event("startup")
-def start_anti_sleep_daemon():
+def on_app_startup():
     keep_alive_engine.start()
+    sheet_streamer.start()
+
+@app.on_event("shutdown")
+def on_app_shutdown():
+    sheet_streamer.stop()
+
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    """
+    Ultra-lightweight health check endpoint for cron-job.org and uptime monitors.
+    Returns 200 OK within < 5ms to keep Render free tier awake and healthy.
+    """
+    mem_stats = get_memory_stats()
+    return {
+        "status": "healthy",
+        "uptime_seconds": int(time.time() - APP_START_TIME),
+        "is_scraping": SCRAPING_STATE.get("is_running", False),
+        "current_agent": SCRAPING_STATE.get("current_agent", "Idle"),
+        "target_count": SCRAPING_STATE.get("target_count", 0),
+        "memory_rss_mb": round(mem_stats.get("rss_mb", 0.0), 2),
+        "memory_pct": round(mem_stats.get("pct", 0.0), 1),
+        "sheet_streamer": sheet_streamer.get_stats(),
+        "scraped_pages": pagination_manager.get_all_state()
+    }
+
+@app.post("/api/logs/clear")
+def clear_logs_endpoint():
+    """Wipes in-memory UI logs buffer and truncates disk log files."""
+    clear_all_logs()
+    return {"status": "ok", "message": "Logs and in-memory buffer cleared."}
 
 # Mount MUSE AI integration router
 app.include_router(muse_router)
@@ -208,7 +244,7 @@ def get_telemetry():
 @app.get("/api/agent-activity")
 def get_agent_activity(level: Optional[str] = None):
     telemetry = get_telemetry()
-    logs = SCRAPING_STATE["logs"]
+    logs = list(SCRAPING_STATE["logs"])
     if level:
         lvl_upper = level.upper()
         logs = [l for l in logs if l.get("level") == lvl_upper or (lvl_upper == "ERROR" and l.get("level") in ("ERROR", "CRITICAL", "WARNING"))]

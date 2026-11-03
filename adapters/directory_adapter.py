@@ -630,6 +630,7 @@ class DirectoryAdapter(SourceAdapter):
             h1 = soup.find("h1")
             biz_name = h1.get_text(strip=True) if h1 else None
             if not biz_name:
+                soup.decompose()
                 return None
 
             website = None
@@ -640,6 +641,7 @@ class DirectoryAdapter(SourceAdapter):
                 if website:
                     website = website.split("?")[0].rstrip("/")
 
+            soup.decompose()
             if not website:
                 return None
 
