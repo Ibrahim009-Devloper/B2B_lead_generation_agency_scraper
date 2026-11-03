@@ -8,18 +8,30 @@ from curl_cffi import requests
 
 logger = logging.getLogger("ProxyRotator")
 
-# Fallback default pool provided by user
+# Fallback default pool provided by user across multiple Webshare accounts
 DEFAULT_PROXIES = [
-    "45.38.107.97:6014:ndmcilxj:itztvi7o8gz9",
-    "64.137.96.74:6641:ndmcilxj:itztvi7o8gz9",
-    "198.23.243.226:6361:ndmcilxj:itztvi7o8gz9",
-    "38.154.185.97:6370:ndmcilxj:itztvi7o8gz9",
-    "84.247.60.125:6095:ndmcilxj:itztvi7o8gz9",
-    "191.96.254.138:6185:ndmcilxj:itztvi7o8gz9",
-    "198.46.161.42:5092:ndmcilxj:itztvi7o8gz9",
-    "64.137.10.153:5803:ndmcilxj:itztvi7o8gz9",
-    "104.164.49.38:7693:ndmcilxj:itztvi7o8gz9",
-    "23.26.71.145:5628:ndmcilxj:itztvi7o8gz9",
+    # Account 1 (Active)
+    "45.38.107.97:6014:tlluyofr:je6skwlg7rke",
+    "64.137.96.74:6641:tlluyofr:je6skwlg7rke",
+    "198.23.243.226:6361:tlluyofr:je6skwlg7rke",
+    "38.154.185.97:6370:tlluyofr:je6skwlg7rke",
+    "84.247.60.125:6095:tlluyofr:je6skwlg7rke",
+    "191.96.254.138:6185:tlluyofr:je6skwlg7rke",
+    "198.46.161.42:5092:tlluyofr:je6skwlg7rke",
+    "64.137.10.153:5803:tlluyofr:je6skwlg7rke",
+    "104.164.49.38:7693:tlluyofr:je6skwlg7rke",
+    "23.26.71.145:5628:tlluyofr:je6skwlg7rke",
+    # Account 2 (Auto Bandwidth Backup & Overflow)
+    "45.38.107.97:6014:lzmcudhj:6zomfebz4ox4",
+    "64.137.96.74:6641:lzmcudhj:6zomfebz4ox4",
+    "198.23.243.226:6361:lzmcudhj:6zomfebz4ox4",
+    "38.154.185.97:6370:lzmcudhj:6zomfebz4ox4",
+    "84.247.60.125:6095:lzmcudhj:6zomfebz4ox4",
+    "191.96.254.138:6185:lzmcudhj:6zomfebz4ox4",
+    "198.46.161.42:5092:lzmcudhj:6zomfebz4ox4",
+    "64.137.10.153:5803:lzmcudhj:6zomfebz4ox4",
+    "104.164.49.38:7693:lzmcudhj:6zomfebz4ox4",
+    "23.26.71.145:5628:lzmcudhj:6zomfebz4ox4",
 ]
 
 class ProxyRotator:
@@ -90,7 +102,7 @@ class ProxyRotator:
         logger.info(f"ProxyRotator initialized with {len(self.proxies)} authenticated rotating proxies.")
 
     def get_next_proxy(self) -> Optional[str]:
-        """Returns the next authenticated proxy URL in round-robin order."""
+        """Returns the next authenticated proxy URL in round-robin order, or None if pool is exhausted/empty."""
         if not self.proxies:
             return None
 
@@ -107,12 +119,8 @@ class ProxyRotator:
                 if proxy not in self.cooldowns:
                     return proxy
 
-            # If all are in cooldown, pick the one expiring soonest
-            if self.cooldowns:
-                soonest = min(self.cooldowns.keys(), key=lambda p: self.cooldowns[p])
-                return soonest
-
-            return self.proxies[self.index % total]
+            # If all configured proxies are dead or in cooldown, return None to trigger direct fallback!
+            return None
 
     def get_proxies_dict(self) -> Optional[Dict[str, str]]:
         """Returns {'http': proxy_url, 'https': proxy_url} for requests / curl_cffi."""
@@ -122,13 +130,27 @@ class ProxyRotator:
         return {"http": proxy_url, "https": proxy_url}
 
     def report_failure(self, proxy_url: Optional[str], status_code: Optional[int] = None, reason: str = ""):
-        """Puts a blocked or failed proxy into a temporary cooldown if repeated or hard network error."""
+        """Puts a blocked or failed proxy into a temporary cooldown if repeated or hard network error.
+        If an account hits 402 Payment Required (Bandwidth Limit), cools down the entire account for 1 hour."""
         if not proxy_url:
             return
         with self.lock:
             count = self.failure_counts.get(proxy_url, 0) + 1
             self.failure_counts[proxy_url] = count
-            # Hard connection errors (curl error, timeout) cool down immediately
+
+            # Bandwidth limit detection (HTTP 402 or 'response 402')
+            is_bandwidth_exhausted = status_code == 402 or "402" in reason
+            if is_bandwidth_exhausted:
+                # If bandwidth is exhausted on this proxy's credentials, cool down for 1 hour
+                self.cooldowns[proxy_url] = time.time() + 3600.0
+                ip_masked = proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url
+                logger.warning(
+                    f"Proxy [{ip_masked}] bandwidth limit reached (HTTP 402). Auto-switching account (1-hr cooldown). "
+                    f"Active healthy pool: {max(0, len(self.proxies) - len(self.cooldowns))}/{len(self.proxies)}"
+                )
+                return
+
+            # Hard connection errors (curl error, timeout) cool down immediately for 45s
             # HTTP 403/429 only cool down if repeated
             is_network_err = status_code is None or status_code >= 500
             if is_network_err or count >= 2:
@@ -148,7 +170,7 @@ class ProxyRotator:
     def execute_request(self, url: str, method: str = "GET", retries: int = 3, **kwargs) -> Any:
         """
         Executes an HTTP request with automatic proxy rotation and failover.
-        If a proxy suffers network/connection timeout, immediately rotates to the next proxy!
+        If proxies fail or expire (e.g. 402 Payment Required), automatically falls back to direct connection!
         """
         last_exception = None
         impersonate = kwargs.pop("impersonate", "safari15_5")
@@ -166,12 +188,29 @@ class ProxyRotator:
                     timeout=timeout,
                     **kwargs
                 )
-                self.report_success(proxy_url)
+                if proxy_url:
+                    self.report_success(proxy_url)
                 return resp
             except Exception as e:
                 last_exception = e
-                self.report_failure(proxy_url, reason=str(e)[:60])
+                if proxy_url:
+                    self.report_failure(proxy_url, reason=str(e)[:60])
                 continue
+
+        # Automatic Direct Fallback: If all proxy attempts failed, try direct connection
+        try:
+            logger.info(f"All proxies failed. Attempting direct fallback connection for: {url}")
+            resp = requests.request(
+                method=method,
+                url=url,
+                impersonate=impersonate,
+                proxies=None,
+                timeout=timeout,
+                **kwargs
+            )
+            return resp
+        except Exception as direct_err:
+            logger.warning(f"Direct connection attempt failed for {url}: {direct_err}")
 
         if last_exception:
             raise last_exception

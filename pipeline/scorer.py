@@ -36,18 +36,13 @@ class ScrapingBuyerScorerV2:
     def calculate_service_fit_score(self, agency_type: AgencyType, core_services: List[str]) -> Tuple[int, str]:
         """
         Factor A: Targeted Company & Service Fit (Max 30 Points)
-        STRICT ICP LOCK: ONLY B2B Lead Gen & Outbound Sales Agencies.
-        Tier 1 (Highest Priority): B2B Lead Gen, Cold Email, Sales Prospecting, Appointment Setting (28-30 pts)
-        Non-ICP: 0 pts (Hard rejected)
+        Accepts all commercial service agencies and data buyers (25-30 pts).
         """
-        if agency_type not in (AgencyType.COLD_EMAIL, AgencyType.B2B_LEAD_GEN):
-            return 0, f"Non-ICP category ({agency_type.value if hasattr(agency_type, 'value') else agency_type}): Only B2B Lead Gen & Outbound Sales accepted (0/30)"
-
         services_str = " ".join(core_services).lower()
         base = 28
-        if any(term in services_str for term in ["prospecting", "cold email", "lead generation", "appointment setting"]):
+        if any(term in services_str for term in ["prospecting", "cold email", "lead generation", "appointment setting", "ecommerce", "seo", "scraping", "data"]):
             base = 30
-        return base, f"Tier 1 Target ICP: Outbound lead gen / cold email agency ({base}/30)"
+        return base, f"Commercial business / agency service fit ({base}/30)"
 
     def calculate_data_dependency_score(self, agency_type: AgencyType, signals: List[str], text_evidence: str = "") -> Tuple[int, str]:
         """

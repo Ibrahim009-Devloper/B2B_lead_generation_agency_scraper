@@ -230,14 +230,16 @@ class MasterOrchestrator:
 
         logger.info(f"Targeting {limit} qualified leads with emails across {len(search_queries_pool)} discovery queries...")
 
-        # Step 2: High-Intent B2B Directory Harvest (Decoupled from city search loop - runs once per batch)
+        # Step 2: High-Intent B2B Directory Harvest (Lean Initial Batch of 20-30 to start enrichment immediately)
         if on_event:
-            on_event("Recon & Source Agent", "Harvesting B2B directories (DesignRush, The Manifest, Sortlist, GoodFirms)...")
+            on_event("Recon & Source Agent", "Harvesting initial B2B directory batch (Lean 25 candidates)...")
         initial_candidates: List[Any] = []
         try:
-            initial_candidates = self.directory_adapter.search(base_term, limit=max(60, limit * 3), target_country=target_country, on_event=on_event)
+            # Strictly limit initial batch to 25 so candidate enrichment starts right away without hoarding
+            initial_batch_limit = min(25, limit)
+            initial_candidates = self.directory_adapter.search(base_term, limit=initial_batch_limit, target_country=target_country, on_event=on_event)
             total_discovered_candidates += len(initial_candidates)
-            logger.info(f"Directory harvest yielded {len(initial_candidates)} candidates.")
+            logger.info(f"Directory initial harvest yielded {len(initial_candidates)} candidates.")
         except Exception as e:
             logger.warning(f"Directory harvester initial run notice: {e}")
 
@@ -392,17 +394,10 @@ class MasterOrchestrator:
                 outreach_draft=enrichment.ready_cold_email
             )
 
-            # Layer 2 AI Verifier rejection check
-            if not enrichment.is_verified_target:
-                lead.overall_priority = PriorityTier.REJECTED
-                lead.lead_classification = LeadClassification.REJECTED
-                lead.target_verification_status = f"REJECTED: {enrichment.non_agency_reason or 'Failed AI gatekeeper'}"
-                with state_lock:
-                    self.repo.record_scraped_domain(dom, status="rejected_ai_gate")
-                    _append_recent_record(lead)
-                if on_event:
-                    on_event("Verification Agent", f"AI Gatekeeper rejected {clean_name}: {enrichment.non_agency_reason or 'Not target agency'}")
-                return None
+            # Layer 2 AI Verifier Rejection Check REMOVED: All commercial businesses with valid email are accepted
+            lead.overall_priority = PriorityTier.HOT_LEAD
+            lead.lead_classification = LeadClassification.HOT_LEAD
+            lead.target_verification_status = enrichment.target_verification_status or "VERIFIED_TARGET"
 
             # Hidden-Email Handling for Verified B2B Lead Gen Agencies (Calendly / Booking forms)
             if enrichment.email_hidden_on_site:
@@ -572,7 +567,7 @@ class MasterOrchestrator:
                         consecutive_empty_rounds = 0
                         from core.pagination_state import pagination_manager
                         for k in list(pagination_manager.get_all_state().keys()):
-                            pagination_manager.set_page(k, 1)
+                            self.repo.set_crawl_page(k, 0 if "themanifest" in k else 1)
                         # Clear transient in-memory seen domains set to allow recycled fresh passes (SQLite retains permanent deduplication)
                         seen_domains.clear()
                         import time

@@ -69,6 +69,18 @@ coverage.xml
 lead_gen.db
 leads_database.db
 crawl_state.json
+scraped_pages.json
+*.tmp
+*.jsonl
+
+# Internal Markdown Audits & Scratch
+scraper_crash_prevention_audit.md
+codebase_audit_review.md
+memory_leak_audit_report.md
+scraper_runtime_review_report.md
+
+# But keep proxies.txt tracked!
+!proxies.txt
 
 # =========================================================================
 # Logs

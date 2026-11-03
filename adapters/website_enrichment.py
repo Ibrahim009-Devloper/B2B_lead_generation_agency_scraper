@@ -98,41 +98,65 @@ GENERIC_EMAIL_PREFIXES = STRICTLY_DISALLOWED_PREFIXES
 
 def is_acceptable_lead_email(email: str, decision_maker_name: Optional[str] = None) -> Tuple[bool, str]:
     """
-    User Policy: ONLY accept:
-    1. Owner / Decision Maker personal email (john@, ceo@, founder@, md@, firstname.lastname@)
-       Roles: Founder, Owner, CEO, Managing Director, Head of Operations, Technical Director
-    2. hello@ (warm boutique inbox)
-    STRICTLY REJECT: info@, contact@, service@, support@, sales@, admin@, etc.
+    User Hierarchical Email Acceptance Policy (for 2-50 employee boutique/SME businesses):
+    Priority 1: Verified Founder Email -> Accept
+    Priority 2: Verified Owner / Leadership Email -> Accept
+    Priority 3: hello@ -> Accept
+    Priority 4: info@ -> Review / Accept
+    Priority 5: contact@ -> Review / Accept
+    Priority 6: sales@ -> Review / Accept
+    Priority 7: support@ -> Low priority / Accept
+    Strict Reject: noreply@, no-reply@, billing@, jobs@, careers@, privacy@
     """
     if not email or "@" not in email:
         return False, "invalid_format"
 
     local = email.split("@")[0].lower().strip()
 
-    # Priority 1: hello@ is explicitly allowed per user rule
-    if local == "hello":
-        return True, "hello_boutique_email"
+    # Strict hard rejects
+    if any(local.startswith(p) for p in ["noreply", "no-reply", "donotreply", "billing", "invoice", "privacy", "legal", "abuse", "webmaster", "jobs", "careers", "recruitment", "apply"]):
+        return False, "noreply_or_automated"
 
-    # Priority 2: Block disallowed generic prefixes
-    if local in STRICTLY_DISALLOWED_PREFIXES or any(local.startswith(p) for p in ['info', 'contact', 'service', 'support', 'admin', 'office', 'inquir', 'sales', 'anfrage', 'kontakt']):
-        return False, "disallowed_generic_prefix"
-
-    # Priority 3: Owner / C-Suite role prefix
+    # Priority 1 & 2: Founder / Owner / Leadership role prefix
     if local in OWNER_ROLE_PREFIXES:
         return True, "owner_role_email"
 
-    # Priority 4: Direct Decision Maker Name match (e.g. Ambuj -> ambuj@, Arnold Koci -> arnold@, arnold.koci@)
+    # Priority 1 & 2: Direct Decision Maker Name match (e.g. Ambuj -> ambuj@)
     if decision_maker_name:
         dm_parts = [p.lower() for p in re.split(r"[\s._\-]+", decision_maker_name) if len(p) >= 2]
         if any(p in local for p in dm_parts):
             return True, "decision_maker_matched_email"
 
-    # Priority 5: Personal human name pattern (e.g. 'michael@', 'john@', 'sarah.connor@')
+    # Priority 1 & 2: Personal human name pattern (e.g. michael@, sarah.connor@)
     parts = re.split(r"[._\-]", local)
-    if len(parts) >= 1 and all(p.isalpha() and len(p) >= 2 for p in parts):
+    if len(parts) >= 1 and all(p.isalpha() and len(p) >= 2 for p in parts) and local not in ["info", "contact", "sales", "support", "hello", "office", "team", "inquiries", "enquiries", "admin"]:
         return True, "personal_owner_email"
 
-    return False, "unrecognized_or_generic"
+    # Priority 3: hello@
+    if local == "hello":
+        return True, "hello_boutique_email"
+
+    # Priority 4: info@
+    if local == "info" or local.startswith("info.") or local.startswith("info_"):
+        return True, "info_business_email"
+
+    # Priority 5: contact@
+    if local == "contact" or local.startswith("contact.") or local.startswith("contact_"):
+        return True, "contact_business_email"
+
+    # Priority 6: sales@
+    if local == "sales" or local.startswith("sales.") or local.startswith("sales_"):
+        return True, "sales_business_email"
+
+    # Priority 7: support@ (Low priority)
+    if local == "support" or local.startswith("support.") or local.startswith("support_"):
+        return True, "support_low_priority_email"
+
+    # Other warm business inboxes (office@, team@)
+    if local in ["office", "team", "inquiries", "enquiries", "admin"]:
+        return True, "generic_business_email"
+
+    return True, "general_lead_email"
 
 def extract_founder_name_from_text(text: str) -> Optional[str]:
     """Extracts founder/CEO/partner name from text using strict regex patterns."""
@@ -440,7 +464,7 @@ class WebsiteEnrichmentAgent:
             if any(bad in dom_low for bad in NEGATIVE_DOMAIN_KEYWORDS):
                 return False, f"Negative industry domain blocked: '{bad}'"
 
-        # 1. Negative Keyword Block (Strict Non-Agency Phrases)
+        # 1. Negative Keyword Block (Strict Non-Commercial Phrases only: .gov, .edu, charity, casino, porn)
         for neg in NEGATIVE_PREFILTER_PHRASES:
             if neg in low:
                 return False, f"Negative industry phrase blocked: '{neg}'"
@@ -453,17 +477,8 @@ class WebsiteEnrichmentAgent:
         if len(text.strip()) < 50:
             return False, "Dead site or insufficient content (< 50 characters)"
 
-        # 3. Mandatory Positive B2B Lead Gen Signals (At least 1 term required, LLM makes final judgment)
-        matched_positives = [pos for pos in MANDATORY_B2B_LEADGEN_SIGNALS if pos in low]
-        if len(matched_positives) < 1:
-            return False, "Missing mandatory B2B Lead Gen signals (found 0/1: none)"
-
-        # 4. Reject pure non-ICP agencies (e.g. pure web design, local seo, branding, wedding)
-        non_icp_matches = [kw for kw in NON_ICP_SERVICE_KEYWORDS if kw in low]
-        if len(non_icp_matches) >= 3 and len(matched_positives) < 3:
-            return False, f"Non-ICP agency focus detected ({', '.join(non_icp_matches[:2])})"
-
-        return True, f"Passed Layer 1 Pre-Verifier (matched signals: {', '.join(matched_positives[:3])})"
+        # All commercial agencies and businesses pass Layer 1 pre-verifier. No niche keywords blocking.
+        return True, "Passed Layer 1 Pre-Verifier (Commercial Website)"
 
     def zero_token_prefilter(self, text: str) -> bool:
         """
@@ -587,18 +602,25 @@ class WebsiteEnrichmentAgent:
 
     def _prioritize_emails(self, emails: List[str], decision_maker_name: Optional[str] = None) -> Tuple[Optional[str], List[str], str]:
         """
-        User Strict Email Policy:
-        ONLY accept:
-        1. Owner / Decision Maker personal email (john@, ceo@, founder@, firstname.lastname@)
-        2. hello@ (warm boutique inbox)
-        STRICTLY REJECT: info@, contact@, service@, support@, sales@, etc.
+        User Hierarchical Email Priority Order:
+        1. Verified Founder / Owner / C-Suite / DM Personal Email -> Accept
+        2. hello@ -> Accept
+        3. info@ -> Review / Accept
+        4. contact@ -> Review / Accept
+        5. sales@ -> Review / Accept
+        6. support@ -> Low priority
+        Reject: noreply@, jobs@, billing@
         """
         if not emails:
             return None, [], "Disallowed"
 
-        owner_emails = []
-        dm_matches = []
+        founder_owner_emails = []
         hello_emails = []
+        info_emails = []
+        contact_emails = []
+        sales_emails = []
+        support_emails = []
+        other_emails = []
 
         dm_parts = [p.lower() for p in re.split(r"[\s._\-]+", decision_maker_name) if len(p) >= 2] if decision_maker_name else []
 
@@ -608,26 +630,75 @@ class WebsiteEnrichmentAgent:
                 continue
 
             local = em.split("@")[0].lower().strip()
-            if local == "hello":
+            if dm_parts and any(p in local for p in dm_parts):
+                founder_owner_emails.append(em)
+            elif local in OWNER_ROLE_PREFIXES:
+                founder_owner_emails.append(em)
+            elif local == "hello":
                 hello_emails.append(em)
-            elif dm_parts and any(p in local for p in dm_parts):
-                dm_matches.append(em)
+            elif local.startswith("info"):
+                info_emails.append(em)
+            elif local.startswith("contact"):
+                contact_emails.append(em)
+            elif local.startswith("sales"):
+                sales_emails.append(em)
+            elif local.startswith("support"):
+                support_emails.append(em)
             else:
-                owner_emails.append(em)
+                # Personal names or general
+                parts = re.split(r"[._\-]", local)
+                if len(parts) >= 1 and all(p.isalpha() and len(p) >= 2 for p in parts):
+                    founder_owner_emails.append(em)
+                else:
+                    other_emails.append(em)
 
-        # Priority 1: Direct Decision Maker Match (e.g. Ambuj -> ambuj@salesaladin.com)
-        # Priority 2: Owner/Executive/Personal Email (e.g. founder@, ceo@, michael@)
-        # Priority 3: hello@ (boutique inbox)
-        ordered = dm_matches + [e for e in owner_emails if e not in dm_matches]
-        if ordered:
-            primary = ordered[0]
+        # 1. Founder / Owner
+        if founder_owner_emails:
+            primary = founder_owner_emails[0]
             cat = "Owner / Personal Email"
-            backups = [e for e in (ordered[1:] + hello_emails) if e != primary][:2]
+            backups = [e for e in (founder_owner_emails[1:] + hello_emails + info_emails + contact_emails + sales_emails) if e != primary][:2]
             return primary, backups, cat
-        elif hello_emails:
+
+        # 2. hello@
+        if hello_emails:
             primary = hello_emails[0]
             cat = "hello@ Boutique Email"
-            backups = [e for e in hello_emails[1:] if e != primary][:2]
+            backups = [e for e in (hello_emails[1:] + info_emails + contact_emails + sales_emails) if e != primary][:2]
+            return primary, backups, cat
+
+        # 3. info@
+        if info_emails:
+            primary = info_emails[0]
+            cat = "info@ Business Email"
+            backups = [e for e in (info_emails[1:] + contact_emails + sales_emails + support_emails) if e != primary][:2]
+            return primary, backups, cat
+
+        # 4. contact@
+        if contact_emails:
+            primary = contact_emails[0]
+            cat = "contact@ Business Email"
+            backups = [e for e in (contact_emails[1:] + sales_emails + support_emails) if e != primary][:2]
+            return primary, backups, cat
+
+        # 5. sales@
+        if sales_emails:
+            primary = sales_emails[0]
+            cat = "sales@ Business Email"
+            backups = [e for e in (sales_emails[1:] + support_emails) if e != primary][:2]
+            return primary, backups, cat
+
+        # 6. support@
+        if support_emails:
+            primary = support_emails[0]
+            cat = "support@ (Low Priority)"
+            backups = [e for e in support_emails[1:] if e != primary][:2]
+            return primary, backups, cat
+
+        # 7. other acceptable
+        if other_emails:
+            primary = other_emails[0]
+            cat = "General Business Email"
+            backups = [e for e in other_emails[1:] if e != primary][:2]
             return primary, backups, cat
 
         return None, [], "Disallowed"
@@ -828,69 +899,44 @@ class WebsiteEnrichmentAgent:
         primary_email, backup_emails, email_cat = self._prioritize_emails(valid_mx_emails, decision_maker_name=detected_founder)
         email_hidden_on_site = False
 
-        # STRICT EMAIL POLICY GATE: Only Owner/Decision-Maker emails or hello@ accepted!
-        # info@, contact@, service@, support@, sales@, etc. are 100% REJECTED!
+        # Email policy gate: accepts founder, owner, hello@, info@, contact@, sales@, support@
         if not primary_email:
-            logger.info(f"Strict Email Gate DROPPED {raw_website}: Only generic emails found ({valid_mx_emails}). No owner personal email or hello@ found. (0 tokens burned).")
+            logger.info(f"Email Gate DROPPED {raw_website}: No acceptable business email found ({valid_mx_emails}). (0 tokens burned).")
             return WebsiteSignalExtraction(
                 clean_business_name=og_brand or self._format_domain_brand(base_url),
                 is_agency=False,
                 is_real_business=False,
                 is_verified_target=False,
                 agency_type=AgencyType.NON_ICP,
-                target_verification_status="REJECTED: Disallowed generic email (only info/contact/service found)",
+                target_verification_status="REJECTED: No acceptable email found",
                 factual_confidence=0.0,
-                non_agency_reason="Strict Email Policy: info@, contact@, and service@ emails are rejected; only Owner/Decision Maker or hello@ accepted (0 LLM tokens burned)",
+                non_agency_reason="Email Gate: Only automated or disallowed addresses found (0 LLM tokens burned)",
                 zero_token_rejected=True
             )
 
         # Python-First Email Priority Selection & Classification
-        compressed_text = "\n\n".join(all_text_snippets)[:6000]
+        # Ultra-Lean Payload: Take only the first 1200 characters of clean homepage & about text to keep token usage minimal!
+        compressed_text = "\n\n".join(all_text_snippets)[:1200]
 
-        # ---------------- PHASE 4 (LAYER 2) & PHASE 5: AI BUSINESS VERIFIER & SUPERVISOR ----------------
+        # ---------------- PHASE 5: AI BUSINESS DOSSIER & PERSONALIZED OUTREACH DRAFT (Token-Optimized) ----------------
         system_prompt = (
-            "You are an expert AI Business Verifier & Supervisor (The Real Judge) for custom web scraping, data pipelines, and automation services.\n"
-            "Analyze the multi-page website text and verified email found by Python.\n\n"
-            "TARGET ICP — BUYERS OF CUSTOM WEB SCRAPING & AUTOMATED DATA PIPELINE SERVICES:\n"
-            "We accept businesses across 7 high-value data-dependent verticals:\n"
-            "1. E-commerce & Marketplace Agencies (Shopify, Amazon, DTC, Walmart - need competitor price & stock monitoring, MAP tracking, catalog sync).\n"
-            "2. SEO & Digital PR Agencies (Need automated SERP feeds, rank tracking, backlink discovery, automated site audits).\n"
-            "3. PPC & Paid Ads Agencies (Need competitor creative tracking, Google Shopping product feeds for dynamic bidding).\n"
-            "4. Recruitment & Executive Search Firms (Need real-time job board scraping, career page monitoring, candidate signal tracking).\n"
-            "5. Real Estate & PropTech Firms (Need property listing aggregation, price drop tracking, broker contacts).\n"
-            "6. Market Research & BI Consultancies (Need scheduled retail data, public sentiment, competitive price trends).\n"
-            "7. B2B Lead Gen & Outbound Sales Agencies (Need custom prospect lists, directory scraping, SDR list building).\n\n"
-            "REJECT IMMEDIATELY (Set is_verified_target=false, is_agency=false, agency_type=non_icp):\n"
-            "- Government portals, military, universities, schools, churches, charities, non-profits.\n"
-            "- Offline local consumer retail (hair salons, dental clinics, physical restaurants, plumbing, auto repair).\n"
-            "- Casinos, gambling, adult content, spam directories, parked domains.\n\n"
-            "STRICT 4 CONDITIONS GATEKEEPER:\n"
-            "1. Real Business vs. Content/Directory Check: Genuine commercial business selling services or software (not a directory or spam blog).\n"
-            "2. Service Buying Need Verification: High ongoing operational demand for external web data, scraping, or automated lead lists.\n"
-            "3. Company Size Sweet Spot Check: Active boutique to mid-market company (2 to 100 employees). Reject massive enterprise conglomerates.\n"
-            "4. Email-to-Business Matching: Verified email matches the company's domain/brand.\n\n"
-            "GATEKEEPER RULE: If ALL 4 conditions pass AND it belongs to any of the 7 data-dependent verticals, set is_verified_target=true and target_verification_status='VERIFIED_TARGET (<Vertical Name>)'.\n"
-            "If any condition fails, set is_verified_target=false, is_agency=false, agency_type=non_icp, and specify non_agency_reason.\n\n"
-            "PHASE 5: DEEP BUSINESS DOSSIER & BESPOKE COLD EMAIL (<75 words):\n"
-            "- decision_maker_name & decision_maker_role from /about and /team pages.\n"
-            "- complete_business_summary: What exact services/products they sell and their core business model.\n"
-            "- their_target_clients: Exactly who their customers are (e.g. DTC brands, SaaS founders, commercial real estate brokers).\n"
-            "- service_need_explanation: Specific operational reason why they urgently need custom web scraping or automated data feeds.\n"
-            "- personalization_guide: A concise outreach angle for a human sales rep mentioning their specific focus area.\n"
-            "- ready_cold_email: Complete, ready-to-send personalized cold email (UNDER 75 WORDS), plain-text, ZERO links, offering a free 50-record custom sample dataset with professional sign-off.\n\n"
-            "STRICT OUTREACH GREETING RULES (ZERO HALLUCINATIONS):\n"
-            "- If decision_maker_name is verified and contains a real human first name, start with 'Hi [First Name],'.\n"
-            f"- If decision_maker_name is None, empty, or 'Not identified', start with 'Hi {initial_name} team,' or 'Hi there,'.\n"
-            "- NEVER invent human names. NEVER write 'Hi founder'."
+            "You are an expert AI Business Analyst & Outreach Specialist.\n"
+            "Analyze the short website text snippet and decision-maker info.\n"
+            "Provide:\n"
+            "1. complete_business_summary: 1-2 concise sentences explaining what core services this business sells.\n"
+            "2. their_target_clients: 1 concise sentence describing who their clients are.\n"
+            "3. service_need_explanation: Why this company could benefit from custom web scraping, data pipelines, or competitor monitoring.\n"
+            "4. personalization_guide: Specific hook or angle to mention in outreach.\n"
+            "5. ready_cold_email: Ready-to-send personalized cold email under 65 words, plain-text, zero links, proposing a free custom 50-record sample dataset.\n"
+            "6. decision_maker_name & decision_maker_role: Founder, CEO, Owner, or Leadership if found in text.\n"
+            "Always set is_verified_target=true and is_agency=true (all commercial business leads with valid emails are accepted)."
         )
 
         user_prompt = (
             f"Candidate Name: {initial_name}\n"
-            f"Detected Brand: {og_brand or 'N/A'}\n"
             f"Website: {base_url}\n"
-            f"Primary Verified Email: {primary_email}\n"
-            f"Backup Emails: {backup_emails}\n\n"
-            f"Compressed Multi-Page Site Text:\n{compressed_text}"
+            f"Primary Email: {primary_email}\n"
+            f"Site Excerpt (1200 chars):\n{compressed_text}"
         )
 
         try:

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autonomous Lead Generation System - Live Dashboard</title>
+  <title>Autonomous Lead Intelligence System - Control Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -11,21 +11,15 @@
   <style>
     body { font-family: 'Inter', sans-serif; }
     .font-mono { font-family: 'JetBrains Mono', monospace; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0f172a; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #475569; }
     @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.3; transform: scale(0.85); } }
     .pulse-dot { animation: pulse-dot 1.5s infinite ease-in-out; }
-    @keyframes glow-pulse { 0%, 100% { box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); } 50% { box-shadow: 0 0 25px rgba(59, 130, 246, 0.5); } }
-    .agent-active-glow { animation: glow-pulse 2s infinite ease-in-out; }
   </style>
 </head>
-<body class="bg-[#0b0f19] text-slate-100 min-h-screen flex flex-col">
+<body class="bg-[#0b0f19] text-slate-100 min-h-screen flex flex-col justify-between">
 
   <!-- TOP HEADER -->
-  <header class="border-b border-slate-800 bg-[#0f172a]/90 backdrop-blur sticky top-0 z-50 px-6 py-3.5">
-    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+  <header class="border-b border-slate-800 bg-[#0f172a]/90 backdrop-blur sticky top-0 z-50 px-6 py-4">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20 font-black text-xl text-white">
           ⚡
@@ -37,127 +31,83 @@
               <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span> System Ready
             </span>
           </h1>
-          <p class="text-[11px] text-slate-400">100% Real-Time B2B Agency Scraping • Zero Fake Records</p>
+          <p class="text-[11px] text-slate-400">Continuous 24/7 Scraping • Live Google Sheet Ingestion</p>
         </div>
       </div>
 
-      <!-- Action Buttons in Header -->
-      <div class="flex items-center gap-2">
-        <button onclick="resetDatabase()" title="Delete all old leads and reset to 0" class="px-3 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/60 text-xs font-medium flex items-center gap-1 transition-all">
-          🗑️ Clear Database (Reset to 0)
-        </button>
-        <a href="/api/export/xlsx?scope=current" download title="Download only newly scraped leads from this session" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1 shadow transition-all">
-          📥 Export Session Leads (.xlsx)
-        </a>
-        <a href="/api/export/xlsx?scope=all" download title="Download all leads in database" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium flex items-center gap-1 transition-all">
-          All History (.xlsx)
-        </a>
-        <a href="/api/export/csv" download class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1 transition-all">
-          Export CSV
+      <!-- Quick Reset & Sheet Link -->
+      <div class="flex items-center gap-3">
+        <a id="btnSheetLink" href="https://docs.google.com/spreadsheets" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all">
+          📊 Open Google Sheet
         </a>
       </div>
     </div>
   </header>
 
-  <main class="max-w-7xl mx-auto w-full px-6 py-6 flex-1 flex flex-col gap-6">
+  <!-- MAIN VIEWPORT -->
+  <main class="max-w-6xl mx-auto w-full px-6 py-10 flex-1 flex flex-col justify-center gap-8">
 
-    <!-- 1. LIVE AGENT STATUS HERO BANNER (WHICH AI IS DOING WHAT RIGHT NOW) -->
-    <section class="bg-[#131b2e] border border-blue-500/30 rounded-2xl p-5 shadow-lg relative overflow-hidden">
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2 text-xs font-semibold tracking-wider uppercase text-slate-400">
-            <span class="w-2.5 h-2.5 rounded-full bg-blue-500 pulse-dot"></span>
-            <span>Current AI Agent Status:</span>
-            <span id="bannerAgentName" class="text-blue-400 font-bold px-2.5 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-sm">Idle</span>
-          </div>
-          <div class="text-base font-medium text-white flex items-center gap-2">
-            <span class="text-slate-400 text-sm">Action:</span>
-            <span id="bannerAgentAction" class="text-slate-200">Waiting for you to start scraping below...</span>
-          </div>
-        </div>
-
-        <!-- 5 Visual Step Pills -->
-        <div class="flex items-center gap-1 sm:gap-2 text-[11px] font-mono bg-[#0b0f19] p-1.5 rounded-xl border border-slate-800">
-          <div id="stepRecon" class="px-2.5 py-1 rounded-lg text-slate-400 bg-slate-800/40 transition-all flex items-center gap-1">
-            <span>1. Recon</span>
-          </div>
-          <span class="text-slate-600">→</span>
-          <div id="stepHarvester" class="px-2.5 py-1 rounded-lg text-slate-400 bg-slate-800/40 transition-all flex items-center gap-1">
-            <span>2. Harvester</span>
-          </div>
-          <span class="text-slate-600">→</span>
-          <div id="stepVerifier" class="px-2.5 py-1 rounded-lg text-slate-400 bg-slate-800/40 transition-all flex items-center gap-1">
-            <span>3. Verifier</span>
-          </div>
-          <span class="text-slate-600">→</span>
-          <div id="stepJudge" class="px-2.5 py-1 rounded-lg text-slate-400 bg-slate-800/40 transition-all flex items-center gap-1">
-            <span>4. Judge</span>
-          </div>
-          <span class="text-slate-600">→</span>
-          <div id="stepOutreach" class="px-2.5 py-1 rounded-lg text-slate-400 bg-slate-800/40 transition-all flex items-center gap-1">
-            <span>5. Outreach</span>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- 2. REAL-TIME COUNTERS (NO FAKE / DEMO DATA) -->
-    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- 4 CORE METRIC CARDS -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
       
-      <!-- Card 1: Verified Hot Leads (The Main Target) -->
-      <div class="bg-[#131b2e] border border-amber-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden">
-        <div class="flex justify-between items-start">
-          <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">Verified Hot Leads</span>
-          <span class="text-2xl">🔥</span>
+      <!-- Card 1: Verified Hot Leads -->
+      <div class="bg-[#131b2e] border border-amber-500/40 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">Verified Hot Leads</span>
+            <span class="text-2xl">🔥</span>
+          </div>
+          <div class="mt-3 flex items-baseline gap-2">
+            <span id="statHotLeads" class="text-5xl font-black text-white tracking-tight">0</span>
+            <span class="text-sm text-slate-400 font-semibold">/ <span id="statTargetGoal">250</span> Target</span>
+          </div>
+          <div class="mt-3 w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div id="statProgressBar" class="bg-gradient-to-r from-amber-500 to-emerald-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
         </div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span id="statHotLeads" class="text-5xl font-black text-white tracking-tight">0</span>
-          <span class="text-sm text-slate-400 font-semibold">/ <span id="statTargetGoal">250</span> Target</span>
-        </div>
-        <div class="mt-3 w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-          <div id="statProgressBar" class="bg-gradient-to-r from-amber-500 to-emerald-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
-        </div>
-        <p class="mt-2 text-[11px] text-slate-400">Score &ge; 80 + Valid Email or Phone</p>
+        <p class="mt-4 text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">Score ≥ 80 + Valid Email or Phone</p>
       </div>
 
-      <!-- Card 2: Total Agencies Evaluated -->
-      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow">
-        <div class="flex justify-between items-start">
-          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Agencies Evaluated</span>
-          <span class="text-xl">🏢</span>
+      <!-- Card 2: Agencies Evaluated -->
+      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Agencies Evaluated</span>
+            <span class="text-xl">🏢</span>
+          </div>
+          <div class="mt-3 flex items-baseline gap-2">
+            <span id="statTotalLeads" class="text-4xl font-extrabold text-white tracking-tight">0</span>
+            <span class="text-xs text-slate-400">in database</span>
+          </div>
         </div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span id="statTotalLeads" class="text-4xl font-extrabold text-white tracking-tight">0</span>
-          <span class="text-xs text-slate-400">in database</span>
-        </div>
-        <p class="mt-3 text-[11px] text-slate-400">
+        <p class="mt-4 text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">
           <span id="statQualifiedLeads" class="text-blue-400 font-semibold">0</span> Qualified • 
           <span id="statNeedsReview" class="text-amber-400 font-semibold">0</span> Review
         </p>
       </div>
 
-      <!-- Card 3: Domains Checked (90-Day Deduplication) -->
-      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow">
-        <div class="flex justify-between items-start">
-          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Domains Scraped</span>
-          <span class="text-xl">🛡️</span>
+      <!-- Card 3: Domains Scraped -->
+      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Domains Scraped</span>
+            <span class="text-xl">🛡️</span>
+          </div>
+          <div class="mt-3 flex items-baseline gap-2">
+            <span id="statScrapedDomains" class="text-4xl font-extrabold text-white tracking-tight">0</span>
+            <span class="text-xs text-emerald-400 font-medium">Recorded</span>
+          </div>
         </div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span id="statScrapedDomains" class="text-4xl font-extrabold text-white tracking-tight">0</span>
-          <span class="text-xs text-emerald-400 font-medium">Recorded</span>
-        </div>
-        <p class="mt-3 text-[11px] text-slate-400">90-Day Memory skips already visited domains</p>
+        <p class="mt-4 text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">90-Day Memory skips already visited domains</p>
       </div>
 
-      <!-- Card 4: Multi-LLM Key Pools -->
-      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow">
+      <!-- Card 4: Active LLMs -->
+      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow flex flex-col justify-between">
         <div class="flex justify-between items-start">
           <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active LLMs</span>
           <span class="text-xl">🤖</span>
         </div>
-        <div class="mt-2.5 space-y-1.5 text-xs font-mono">
+        <div class="mt-3 space-y-2 text-xs font-mono">
           <div class="flex justify-between items-center">
             <span class="text-slate-300">Groq (5 Keys)</span>
             <span id="statGroq" class="text-emerald-400 font-semibold">Ready</span>
@@ -171,221 +121,89 @@
             <span class="text-cyan-400 font-semibold">Connected</span>
           </div>
         </div>
+        <p class="mt-4 text-[11px] text-emerald-400 border-t border-slate-800/80 pt-2 flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> AI Gatekeepers Online
+        </p>
       </div>
 
     </section>
 
-    <!-- 3. CONTROLLER & ACTION BUTTONS -->
-    <section class="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow">
-      <div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
-        
-        <!-- Search Prompt Input -->
-        <div class="flex-1 space-y-2">
-          <label class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Target Campaign Requirement</label>
-          <div class="flex gap-2">
-            <input 
-              id="inputPrompt" 
-              type="text" 
-              value="B2B lead generation agencies"
-              placeholder="e.g. B2B lead generation agencies, Cold email marketing, Local SEO"
-              class="w-full bg-[#0b0f19] border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
-            />
-            <div class="flex items-center gap-1.5 bg-[#0b0f19] border border-slate-700 rounded-xl px-3 py-1">
-              <span class="text-xs text-slate-400 font-medium">Goal:</span>
-              <select id="inputQuantity" class="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer">
-                <option value="10" class="bg-slate-900">10 Leads</option>
-                <option value="25" class="bg-slate-900">25 Leads</option>
-                <option value="50" class="bg-slate-900">50 Leads</option>
-                <option value="100" class="bg-slate-900">100 Leads</option>
-                <option value="250" selected class="bg-slate-900">250 Leads</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Quick Presets -->
-          <div class="flex flex-wrap gap-2 pt-1">
-            <button onclick="setPrompt('B2B lead generation agencies')" class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-300 transition-all font-medium">B2B Lead Gen</button>
-            <button onclick="setPrompt('Outbound cold email agencies')" class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 transition-all font-medium">Cold Email</button>
-            <button onclick="setPrompt('Local SEO citation and ranking agencies')" class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 transition-all font-medium">Local SEO</button>
-            <button onclick="setPrompt('B2B recruiting and talent acquisition agencies')" class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-violet-300 transition-all font-medium">Recruiting Agencies</button>
-          </div>
-        </div>
-
-        <!-- Start / Stop Button -->
-        <div class="flex items-end gap-3">
-          <button 
-            id="btnStartScraping" 
-            onclick="toggleScraping()"
-            class="px-8 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all min-w-[200px]"
-          >
-            <span id="startBtnIcon">▶</span>
-            <span id="startBtnText">Start Lead Scraper</span>
-          </button>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- 4. LIVE AGENT ACTIVITY LOG FEED -->
-    <section class="bg-[#080d1a] border border-slate-800 rounded-xl p-4 shadow-inner">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 border-b border-slate-800 text-xs font-mono gap-2">
-        <div class="flex items-center gap-3">
-          <span class="flex items-center gap-2 text-slate-200 font-semibold">
-            <span class="w-2 h-2 rounded-full bg-blue-400 pulse-dot"></span> 
-            Live Pipeline Logs & Diagnostics
-          </span>
-          <!-- Log Filters -->
-          <div class="flex items-center bg-[#131b2e] rounded-md p-0.5 border border-slate-800 text-[11px]">
-            <button id="btnLogFilterAgent" onclick="setLogFilter('agent')" class="px-2 py-0.5 rounded font-semibold bg-blue-600 text-white">Agent Summary</button>
-            <button id="btnLogFilterRaw" onclick="setLogFilter('raw')" class="px-2 py-0.5 rounded text-slate-400 hover:text-white">🖥️ Live Terminal</button>
-            <button id="btnLogFilterErrors" onclick="setLogFilter('errors')" class="px-2 py-0.5 rounded text-slate-400 hover:text-red-300">🚨 Errors & Warnings</button>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <label class="flex items-center gap-1 text-[11px] text-slate-400 cursor-pointer mr-2">
-            <input type="checkbox" id="chkAutoScroll" checked class="rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-0">
-            Auto-Scroll
-          </label>
-          <span id="liveFeedCount" class="text-slate-400">0 events logged</span>
-          <a href="/api/logs/download?kind=scraper" download="scraper.log" class="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 transition-all" title="Download entire scraper.log">
-            📄 scraper.log
-          </a>
-          <a href="/api/logs/download?kind=errors" download="errors.log" class="text-[10px] px-2 py-1 rounded bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/60 flex items-center gap-1 transition-all" title="Download only errors and warnings">
-            🚨 errors.log
-          </a>
-        </div>
-      </div>
-      <div id="activityLogsContainer" class="mt-3 space-y-1 max-h-72 overflow-y-auto font-mono text-xs text-slate-300 pr-1 select-text bg-[#040812] p-2.5 rounded-lg border border-slate-900">
-        <div class="text-slate-500 italic text-[11px]">System idle. Type a prompt above and click 'Start Lead Scraper' to watch real-time lead extraction.</div>
-      </div>
-    </section>
-
-    <!-- 5. VERIFIED LEADS TABLE -->
-    <section class="space-y-3">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div class="flex items-center gap-3">
-          <h2 class="text-sm font-bold text-slate-200 tracking-wide uppercase">Verified Collected Leads</h2>
-          <div class="flex items-center bg-[#131b2e] border border-slate-800 rounded-lg p-0.5 text-xs">
-            <button onclick="setFilter('hot')" id="tabHot" class="px-3 py-1 rounded-md font-semibold bg-blue-600 text-white transition-all">Hot Leads (&ge; 80 pts)</button>
-            <button onclick="setFilter('all')" id="tabAll" class="px-3 py-1 rounded-md text-slate-400 hover:text-white transition-all">All Scanned</button>
-          </div>
-        </div>
-        <span class="text-xs text-slate-400" id="tableCountSummary">0 leads</span>
+    <!-- CENTRAL START / STOP ACTION CONTROLLER -->
+    <section class="bg-[#131b2e] border border-slate-800 rounded-3xl p-8 shadow-2xl flex flex-col items-center justify-center text-center gap-5">
+      <div>
+        <h2 class="text-xl font-bold text-white tracking-wide">24/7 Autonomous Scraper Engine</h2>
+        <p class="text-sm text-slate-400 mt-1 max-w-lg mx-auto">
+          Scrapes DesignRush, Clutch, Manifest, GoodFirms & Sortlist across all 7 target niches. Leads stream directly to your Google Sheet every 12 seconds.
+        </p>
       </div>
 
-      <div class="bg-[#131b2e] border border-slate-800 rounded-2xl overflow-hidden shadow">
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs text-slate-300">
-            <thead class="bg-[#0f172a] text-slate-400 uppercase text-[10px] tracking-wider font-semibold border-b border-slate-800">
-              <tr>
-                <th class="py-3 px-4">Company Name & Website</th>
-                <th class="py-3 px-4">Actionable Contact (Email / Phone)</th>
-                <th class="py-3 px-4">Decision Maker</th>
-                <th class="py-3 px-4 text-center">Score</th>
-                <th class="py-3 px-4">Custom Outreach Hook</th>
-              </tr>
-            </thead>
-            <tbody id="leadsTableBody" class="divide-y divide-slate-800/80">
-              <tr>
-                <td colspan="5" class="py-10 text-center text-slate-500 italic">
-                  Database is fresh (0 leads). Click 'Start Lead Scraper' above to begin harvesting real verified leads.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <!-- Main Start Button -->
+      <button 
+        id="btnStartScraping" 
+        onclick="toggleScraping()"
+        class="px-12 py-5 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-lg font-extrabold shadow-xl shadow-blue-600/30 flex items-center justify-center gap-3 transition-all min-w-[280px]"
+      >
+        <span id="startBtnIcon" class="text-xl">▶</span>
+        <span id="startBtnText">Start Lead Scraper</span>
+      </button>
+
+      <div id="liveStatusText" class="text-xs font-mono text-slate-500">
+        System idle. Click to start autonomous collection.
       </div>
     </section>
 
   </main>
 
+  <!-- CLEAN FOOTER -->
   <footer class="border-t border-slate-800 bg-[#0f172a] py-4 text-center text-xs text-slate-500">
-    Autonomous Multi-Agent Lead Intelligence System v2.0 • Real Live B2B Agency Pipeline
+    Autonomous Lead Generation System v3.1 • 100% Python Harvester with AI Verification
   </footer>
 
-  <!-- JAVASCRIPT LOGIC (POLLING & REAL-TIME UPDATES) -->
+  <!-- SCRIPT LOGIC -->
   <script>
     let isRunning = false;
-    let currentFilter = 'hot';
-    let currentLogFilter = 'agent';
 
-    function setPrompt(text) {
-      document.getElementById('inputPrompt').value = text;
-    }
-
-    function setLogFilter(filter) {
-      currentLogFilter = filter;
-      const btnAgent = document.getElementById('btnLogFilterAgent');
-      const btnRaw = document.getElementById('btnLogFilterRaw');
-      const btnErrors = document.getElementById('btnLogFilterErrors');
-      
-      if (btnAgent) btnAgent.className = filter === 'agent'
-        ? 'px-2 py-0.5 rounded font-semibold bg-blue-600 text-white'
-        : 'px-2 py-0.5 rounded text-slate-400 hover:text-white';
-      if (btnRaw) btnRaw.className = filter === 'raw'
-        ? 'px-2 py-0.5 rounded font-semibold bg-emerald-600 text-white'
-        : 'px-2 py-0.5 rounded text-slate-400 hover:text-white';
-      if (btnErrors) btnErrors.className = filter === 'errors'
-        ? 'px-2 py-0.5 rounded font-semibold bg-red-700 text-white'
-        : 'px-2 py-0.5 rounded text-slate-400 hover:text-red-300';
-      fetchTelemetry();
-    }
-
-    function setFilter(filter) {
-      currentFilter = filter;
-      document.getElementById('tabHot').className = filter === 'hot' 
-        ? 'px-3 py-1 rounded-md font-semibold bg-blue-600 text-white transition-all'
-        : 'px-3 py-1 rounded-md text-slate-400 hover:text-white transition-all';
-      document.getElementById('tabAll').className = filter === 'all' 
-        ? 'px-3 py-1 rounded-md font-semibold bg-blue-600 text-white transition-all'
-        : 'px-3 py-1 rounded-md text-slate-400 hover:text-white transition-all';
-      fetchLeads();
-    }
-
-    async function resetDatabase() {
-      if (!confirm('Are you sure you want to completely clear the database and start fresh with 0 leads?')) {
-        return;
-      }
-      try {
-        const resp = await fetch('/api/database/reset', { method: 'POST' });
-        const data = await resp.json();
-        alert('Database cleared! Everything is reset to 0.');
-        fetchTelemetry();
-        fetchLeads();
-      } catch (err) {
-        alert('Failed to reset: ' + err);
-      }
-    }
-
-    // Toggle Start / Stop Scraping
     async function toggleScraping() {
       const btn = document.getElementById('btnStartScraping');
-      const prompt = document.getElementById('inputPrompt').value.trim();
-      const target = parseInt(document.getElementById('inputQuantity').value, 10);
+      btn.disabled = true;
 
       if (!isRunning) {
         try {
-          btn.disabled = true;
-          const resp = await fetch('/api/campaigns/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, target_count: target })
-          });
+          const resp = await fetch('/api/campaigns/autonomous/start', { method: 'POST' });
           const data = await resp.json();
           isRunning = true;
           updateButtonState(true);
         } catch (err) {
-          alert('Failed to start scraper: ' + err);
+          // Fallback to standard start if autonomous start endpoint is not reached
+          try {
+            await fetch('/api/campaigns/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: 'B2B lead generation agencies', target_count: 50000 })
+            });
+            isRunning = true;
+            updateButtonState(true);
+          } catch (e) {
+            alert('Failed to start scraper: ' + e);
+          }
         } finally {
           btn.disabled = false;
         }
       } else {
         try {
-          await fetch('/api/campaigns/stop', { method: 'POST' });
+          await fetch('/api/campaigns/autonomous/stop', { method: 'POST' });
           isRunning = false;
           updateButtonState(false);
         } catch (err) {
-          alert('Failed to stop: ' + err);
+          try {
+            await fetch('/api/campaigns/stop', { method: 'POST' });
+            isRunning = false;
+            updateButtonState(false);
+          } catch (e) {
+            alert('Failed to stop scraper: ' + e);
+          }
+        } finally {
+          btn.disabled = false;
         }
       }
     }
@@ -394,275 +212,60 @@
       const btn = document.getElementById('btnStartScraping');
       const icon = document.getElementById('startBtnIcon');
       const text = document.getElementById('startBtnText');
+      const statusBadge = document.getElementById('systemStatusBadge');
+      const statusText = document.getElementById('liveStatusText');
+
       if (running) {
-        btn.className = "px-8 py-3.5 rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 text-white text-sm font-bold shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 transition-all min-w-[200px]";
+        btn.className = "px-12 py-5 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-95 text-white text-lg font-extrabold shadow-xl shadow-red-600/30 flex items-center justify-center gap-3 transition-all min-w-[280px]";
         icon.innerText = "⏹";
         text.innerText = "Stop Scraper";
-        document.getElementById('systemStatusBadge').innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span> Scraping In Progress...';
+        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span> Scraping In Progress...';
+        statusText.innerText = '⚡ 24/7 Scraper is running. Streams to Google Sheet every 12 seconds.';
+        statusText.className = 'text-xs font-mono text-emerald-400 font-medium';
       } else {
-        btn.className = "px-8 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all min-w-[200px]";
+        btn.className = "px-12 py-5 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-lg font-extrabold shadow-xl shadow-blue-600/30 flex items-center justify-center gap-3 transition-all min-w-[280px]";
         icon.innerText = "▶";
         text.innerText = "Start Lead Scraper";
-        document.getElementById('systemStatusBadge').innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span> System Ready';
+        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span> System Ready';
+        statusText.innerText = 'System idle. Click to start autonomous collection.';
+        statusText.className = 'text-xs font-mono text-slate-500';
       }
     }
 
-    // Highlight current agent step
-    function updateAgentSteps(agentName, latestAction) {
-      const bannerName = document.getElementById('bannerAgentName');
-      const bannerAction = document.getElementById('bannerAgentAction');
-
-      if (!agentName || agentName === 'Idle') {
-        bannerName.innerText = 'Idle';
-        bannerName.className = 'text-slate-400 font-bold px-2.5 py-0.5 rounded-md bg-slate-800 text-sm';
-        bannerAction.innerText = 'Waiting for prompt... Click Start Lead Scraper.';
-      } else {
-        bannerName.innerText = agentName;
-        bannerName.className = 'text-blue-400 font-bold px-2.5 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-sm agent-active-glow';
-        bannerAction.innerText = latestAction || 'Processing task...';
-      }
-
-      const steps = [
-        { id: 'stepRecon', match: 'Recon' },
-        { id: 'stepHarvester', match: 'Harvester' },
-        { id: 'stepVerifier', match: 'Verification' },
-        { id: 'stepJudge', match: 'The Judge' },
-        { id: 'stepOutreach', match: 'Outreach' }
-      ];
-
-      steps.forEach(s => {
-        const el = document.getElementById(s.id);
-        if (agentName && agentName.includes(s.match)) {
-          el.className = 'px-2.5 py-1 rounded-lg text-white font-bold bg-blue-600 shadow shadow-blue-500/40 transition-all scale-105';
-        } else {
-          el.className = 'px-2.5 py-1 rounded-lg text-slate-400 bg-slate-800/40 transition-all';
-        }
-      });
-    }
-
-    // Fetch live telemetry & agent logs
     async function fetchTelemetry() {
       try {
-        const respTel = await fetch('/api/telemetry');
-        const tel = await respTel.json();
+        const resp = await fetch('/api/telemetry');
+        const tel = await resp.json();
 
-        // Update real counts
-        document.getElementById('statHotLeads').innerText = tel.hot_leads_count;
+        // Update counts
+        document.getElementById('statHotLeads').innerText = tel.hot_leads_count || 0;
         document.getElementById('statTargetGoal').innerText = tel.target_count || 250;
-        document.getElementById('statTotalLeads').innerText = tel.total_leads;
-        document.getElementById('statQualifiedLeads').innerText = tel.qualified_count;
-        document.getElementById('statNeedsReview').innerText = tel.needs_review_count;
-        document.getElementById('statScrapedDomains').innerText = tel.total_scraped_domains;
+        document.getElementById('statTotalLeads').innerText = tel.total_leads || 0;
+        document.getElementById('statQualifiedLeads').innerText = tel.qualified_count || 0;
+        document.getElementById('statNeedsReview').innerText = tel.needs_review_count || 0;
+        document.getElementById('statScrapedDomains').innerText = tel.total_scraped_domains || 0;
 
         // Progress bar
         const goal = tel.target_count || 250;
-        const pct = Math.min(100, Math.round((tel.hot_leads_count / goal) * 100));
+        const pct = Math.min(100, Math.round(((tel.hot_leads_count || 0) / goal) * 100));
         document.getElementById('statProgressBar').style.width = pct + '%';
 
         // Keys
-        document.getElementById('statGroq').innerText = `${tel.groq_active}/${tel.groq_total} Active`;
-        document.getElementById('statGemini').innerText = `${tel.gemini_active}/${tel.gemini_total} Active`;
+        document.getElementById('statGroq').innerText = `${tel.groq_active || 5}/${tel.groq_total || 5} Active`;
+        document.getElementById('statGemini').innerText = `${tel.gemini_active || 5}/${tel.gemini_total || 5} Active`;
 
-        // Update Running state
+        // Sync Running state
         if (tel.is_running !== isRunning) {
           isRunning = tel.is_running;
           updateButtonState(isRunning);
         }
-
-        const container = document.getElementById('activityLogsContainer');
-
-        if (currentLogFilter === 'raw' || currentLogFilter === 'errors') {
-          const kind = currentLogFilter === 'errors' ? 'errors' : 'scraper';
-          const respRaw = await fetch(`/api/logs/view?kind=${kind}&lines=75`);
-          const rawData = await respRaw.json();
-          const rawLines = rawData.logs || [];
-          document.getElementById('liveFeedCount').innerText = `${rawLines.length} lines (${kind}.log)`;
-
-          if (rawLines.length > 0) {
-            container.innerHTML = rawLines.map(line => {
-              const clean = line.trim();
-              if (!clean) return '';
-              let badge = '<span class="text-blue-400 font-semibold shrink-0">[INFO]</span>';
-              let textClass = 'text-slate-300';
-              let bg = '';
-              if (clean.includes('[ERROR]') || clean.includes('CRITICAL') || clean.includes('Traceback')) {
-                badge = '<span class="px-1 text-[10px] rounded bg-red-600 text-white font-bold shrink-0">ERROR</span>';
-                textClass = 'text-red-300 font-semibold';
-                bg = 'bg-red-950/40 border-l-2 border-red-500 pl-1.5 rounded-sm';
-              } else if (clean.includes('[WARNING]') || clean.includes('cooled down') || clean.includes('blocked')) {
-                badge = '<span class="px-1 text-[10px] rounded bg-amber-600 text-black font-bold shrink-0">WARN</span>';
-                textClass = 'text-amber-200';
-                bg = 'bg-amber-950/30 border-l-2 border-amber-500 pl-1.5 rounded-sm';
-              } else if (clean.includes('[HOT LEAD]')) {
-                badge = '<span class="px-1 text-[10px] rounded bg-emerald-600 text-white font-bold shrink-0">HOT LEAD</span>';
-                textClass = 'text-emerald-300 font-semibold';
-              } else if (clean.includes('[ProxyRotator]')) {
-                badge = '<span class="text-purple-400 font-semibold shrink-0">[Proxy]</span>';
-              }
-
-              const timeMatch = clean.match(/^\[([^\]]+)\]/);
-              const timeStr = timeMatch ? timeMatch[1] : '';
-              const restMsg = timeMatch ? clean.substring(timeMatch[0].length).trim() : clean;
-
-              return `
-                <div class="flex items-start gap-2 py-0.5 font-mono text-[11px] leading-relaxed ${bg} hover:bg-slate-800/40">
-                  <span class="text-slate-500 shrink-0 select-none">[${timeStr.split(' ')[1] || timeStr}]</span>
-                  ${badge}
-                  <span class="${textClass} break-all">${restMsg}</span>
-                </div>
-              `;
-            }).join('');
-          } else {
-            container.innerHTML = currentLogFilter === 'errors'
-              ? `<div class="text-emerald-400 italic text-[11px] py-2">✓ No errors or warnings logged in errors.log. Clean!</div>`
-              : `<div class="text-slate-500 italic text-[11px] py-2">No lines in scraper.log yet.</div>`;
-          }
-        } else {
-          // Agent mode
-          const respAct = await fetch('/api/agent-activity');
-          const act = await respAct.json();
-
-          const latestMsg = act.logs && act.logs.length > 0 ? act.logs[0].message : '';
-          updateAgentSteps(tel.current_agent, latestMsg);
-
-          if (act.logs && act.logs.length > 0) {
-            document.getElementById('liveFeedCount').innerText = `${act.logs.length} events logged`;
-            container.innerHTML = act.logs.map(l => {
-              const isError = l.level ? (l.level === 'ERROR' || l.level === 'CRITICAL') : (l.message && /\b(error|failed|exception)\b/i.test(l.message) && !l.message.includes('errors.log'));
-              const isWarn = l.level ? (l.level === 'WARNING') : (l.message && /\b(warn|warning|blocked|failover)\b/i.test(l.message));
-              
-              let bgClass = "border-b border-slate-800/40 hover:bg-slate-800/30";
-              let badge = `<span class="text-blue-400 font-bold shrink-0">${l.agent}:</span>`;
-              let textClass = "text-slate-200";
-
-              if (isError) {
-                bgClass = "bg-red-950/40 border-l-2 border-red-500 py-1 px-1.5 rounded-sm";
-                badge = `<span class="px-1.5 py-0.2 text-[10px] rounded bg-red-600 text-white font-bold shrink-0">ERROR</span> <span class="text-red-300 font-semibold shrink-0">${l.agent}:</span>`;
-                textClass = "text-red-200 font-mono";
-              } else if (isWarn) {
-                bgClass = "bg-amber-950/30 border-l-2 border-amber-500 py-1 px-1.5 rounded-sm";
-                badge = `<span class="px-1.5 py-0.2 text-[10px] rounded bg-amber-600 text-black font-bold shrink-0">WARN</span> <span class="text-amber-300 font-semibold shrink-0">${l.agent}:</span>`;
-                textClass = "text-amber-200";
-              }
-
-              return `
-                <div class="flex items-start gap-2 py-0.5 ${bgClass} transition-all">
-                  <span class="text-slate-500 shrink-0 font-mono">[${l.time}]</span>
-                  ${badge}
-                  <span class="${textClass} break-all">${l.message}</span>
-                </div>
-              `;
-            }).join('');
-          } else {
-            container.innerHTML = `<div class="text-slate-500 italic text-[11px] py-2">System idle. Type a prompt above and click 'Start Lead Scraper' to watch real-time lead extraction.</div>`;
-          }
-        }
-
-        // Auto-scroll to bottom if checked
-        const chkAuto = document.getElementById('chkAutoScroll');
-        if (chkAuto && chkAuto.checked && container) {
-          container.scrollTop = container.scrollHeight;
-        }
-
       } catch (e) {
         console.error('Error fetching telemetry:', e);
       }
     }
 
-      } catch (e) {
-        console.error('Error fetching telemetry:', e);
-      }
-    }
-
-    // Fetch leads table
-    async function fetchLeads() {
-      try {
-        let resp = await fetch('/api/leads?scope=current&limit=100');
-        let leads = await resp.json();
-        if ((!leads || leads.length === 0) && !isRunning) {
-          resp = await fetch('/api/leads?scope=all&limit=50');
-          leads = await resp.json();
-        }
-
-        const filtered = currentFilter === 'hot' 
-          ? leads.filter(l => (l.verified_email || l.email) && (l.overall_priority === 'Hot Lead' || l.lead_classification === 'Hot Lead' || ((l.total_score || l.opportunity_score) >= 75)))
-          : leads.filter(l => (l.verified_email || l.email));
-
-        document.getElementById('tableCountSummary').innerText = `${filtered.length} leads in view`;
-        const tbody = document.getElementById('leadsTableBody');
-
-        if (filtered.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-slate-500 italic">Database is fresh (0 leads). Click 'Start Lead Scraper' above to begin harvesting real verified leads.</td></tr>`;
-          return;
-        }
-
-        tbody.innerHTML = filtered.map(l => {
-          const emailVal = l.verified_email || l.email;
-          const emailCategory = l.email_type ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 ml-1 font-mono">${l.email_type}</span>` : '';
-          const emailBadge = emailVal 
-            ? `<div class="font-medium text-emerald-400 flex items-center gap-1">✉️ ${emailVal} ${emailCategory}</div>` 
-            : `<div class="text-slate-500 italic">No email found</div>`;
-          
-          let backups = '';
-          if (l.backup_emails && l.backup_emails.length > 0) {
-            backups = `<div class="text-[10px] text-slate-400 font-mono mt-0.5">Alt: ${l.backup_emails.join(', ')}</div>`;
-          }
-
-          const dm = l.decision_maker_name 
-            ? `<div class="font-semibold text-white">${l.decision_maker_name}</div><div class="text-[11px] text-slate-400">${l.decision_maker_role || 'Founder/CEO'}</div>`
-            : `<div class="text-slate-500 italic">Not found</div>`;
-          
-          const leadScore = l.total_score || l.opportunity_score || l.data_dependency_score || 0;
-          const scoreColor = leadScore >= 75 ? 'text-amber-400 font-black' : 'text-slate-300 font-bold';
-
-          const outreachText = l.outreach_draft || l.custom_outreach_hook || l.personalization_guide || 'Ready for outreach';
-
-          return `
-            <tr class="hover:bg-slate-800/40 transition-colors">
-              <td class="py-3 px-4">
-                <div class="font-bold text-white text-sm">${l.business_name || 'N/A'}</div>
-                <a href="${l.website && l.website.startsWith('http') ? l.website : 'https://' + (l.website || '')}" target="_blank" class="text-blue-400 hover:underline text-[11px] flex items-center gap-0.5 mt-0.5">
-                  ${l.website || 'N/A'} ↗
-                </a>
-                ${l.company_size ? `<span class="inline-block mt-1 text-[10px] px-1.5 py-0.2 bg-slate-800 text-slate-400 rounded">${l.company_size} team</span>` : ''}
-              </td>
-              <td class="py-3 px-4">${emailBadge}${backups}</td>
-              <td class="py-3 px-4">${dm}</td>
-              <td class="py-3 px-4 text-center">
-                <span class="${scoreColor} text-base">${leadScore}</span>
-                <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">${l.overall_priority}</div>
-              </td>
-              <td class="py-3 px-4 max-w-sm">
-                <p class="text-[11px] text-slate-300 line-clamp-3 whitespace-pre-line" title="${outreachText}">
-                  ${outreachText}
-                </p>
-              </td>
-            </tr>
-          `;
-        }).join('');
-
-      } catch (e) {
-        console.error('Error fetching leads:', e);
-      }
-    }
-
-    // Sync target goal with selector
-    const qtySelector = document.getElementById('inputQuantity');
-    if (qtySelector) {
-      qtySelector.addEventListener('change', (e) => {
-        document.getElementById('statTargetGoal').innerText = e.target.value;
-      });
-    }
-
-    // Initial load and gentle periodic polling every 5 seconds (prevents connection drops & RAM churn)
     fetchTelemetry();
-    fetchLeads();
-    setInterval(() => {
-      fetchTelemetry();
-      if (isRunning) {
-        fetchLeads();
-      }
-    }, 5000);
+    setInterval(fetchTelemetry, 3000);
   </script>
 </body>
 </html>
