@@ -203,7 +203,8 @@ class GoogleSheetStreamer:
         try:
             with open(fallback_file, "a", encoding="utf-8") as f:
                 for l in leads:
-                    f.write(json.dumps(l.to_dict(), default=str) + "\n")
+                    data = l.model_dump() if hasattr(l, "model_dump") else (l if isinstance(l, dict) else l.__dict__)
+                    f.write(json.dumps(data, default=str) + "\n")
             logger.info(f"[STREAMER FALLBACK] Safely persisted {len(leads)} leads to {fallback_file}")
         except Exception as e:
             logger.error(f"[STREAMER CRITICAL] Failed to write fallback file: {e}")

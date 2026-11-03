@@ -8,12 +8,15 @@ from core.logger import setup_logging, SCRAPER_LOG_PATH, ERRORS_LOG_PATH, UI_LOG
 from core.orchestrator import master_orchestrator
 from core.memory_guard import get_memory_stats, force_garbage_collection
 
+AUTONOMOUS_CONTINUOUS_MODE = False
+
 # Global Real-Time Scraping State
 SCRAPING_STATE: Dict[str, Any] = {
     "is_running": False,
     "current_agent": "Idle",
     "prompt": "",
     "target_count": 25,
+    "autonomous_24_7_mode": False,
     "last_campaign_id": None,
     "last_campaign_leads": [],
     "last_campaign_all_records": [],
@@ -21,6 +24,11 @@ SCRAPING_STATE: Dict[str, Any] = {
     "last_event_time": "",
     "logs": UI_LOG_BUFFER
 }
+
+def set_autonomous_continuous_mode(enabled: bool):
+    global AUTONOMOUS_CONTINUOUS_MODE
+    AUTONOMOUS_CONTINUOUS_MODE = enabled
+    SCRAPING_STATE["autonomous_24_7_mode"] = enabled
 
 def _restore_last_state_from_db():
     """Restores last completed/active campaign ID from persistent SQLite so data survives container restarts."""
@@ -96,6 +104,24 @@ def _background_scraper_worker(prompt: str, target: int, webhook_url: Optional[s
         if webhook_url:
             log_agent_activity("Webhook Dispatcher", f"Dispatching completed leads to callback URL: {webhook_url}")
             _dispatch_webhook(webhook_url, result)
+
+        # Autonomous 24/7 Continuous Loop (Auto-Refill & Self-Healing across all directories)
+        import time
+        cycle_count = 1
+        while AUTONOMOUS_CONTINUOUS_MODE and not master_orchestrator.stop_requested:
+            cycle_count += 1
+            log_agent_activity("Master Orchestrator", f"24/7 Autonomous Daemon: Pausing 60s for proxy/rate cool-down before Cycle #{cycle_count}...")
+            time.sleep(60.0)
+            if master_orchestrator.stop_requested or not AUTONOMOUS_CONTINUOUS_MODE:
+                break
+            log_agent_activity("Master Orchestrator", f"24/7 Autonomous Daemon: Launching continuous harvest Cycle #{cycle_count}...")
+            try:
+                result = master_orchestrator.run_campaign(prompt, target_count=target, on_event=log_agent_activity)
+                if webhook_url:
+                    _dispatch_webhook(webhook_url, result)
+            except Exception as cycle_err:
+                log_agent_activity("Master Orchestrator", f"Cycle notice: {cycle_err}. Self-healing in 60s...", level="WARNING")
+                time.sleep(60.0)
     except Exception as e:
         err_trace = traceback.format_exc()
         log_agent_activity("Master Orchestrator", f"Campaign encountered error: {e}", level="ERROR")
@@ -135,6 +161,7 @@ def start_background_campaign(prompt: str, target_count: int = 25, webhook_url: 
 
 def stop_background_campaign() -> Dict[str, Any]:
     """Signals orchestrator and running threads to halt immediately."""
+    set_autonomous_continuous_mode(False)
     master_orchestrator.stop_campaign()
     SCRAPING_STATE["is_running"] = False
     SCRAPING_STATE["current_agent"] = "Stopped"

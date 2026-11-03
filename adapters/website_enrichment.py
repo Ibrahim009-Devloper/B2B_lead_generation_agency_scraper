@@ -76,18 +76,22 @@ FOREIGN_COUNTRY_TLDS = (
 # info@, contact@, service@, support@, sales@, etc. are 100% REJECTED
 STRICTLY_DISALLOWED_PREFIXES = {
     'info', 'contact', 'service', 'services', 'support', 'admin', 'office', 'inquiry', 'inquiries',
+    'enquiry', 'enquiries', 'growth', 'bizdev', 'biz', 'business', 'newbusiness', 'new-business',
+    'outbound', 'inbound', 'post', 'editorial', 'client', 'clients', 'talent', 'hire', 'hiring',
+    'work', 'workwithus', 'consult', 'booking', 'bookings',
     'sales', 'anfrage', 'kontakt', 'team', 'accounts', 'marketing', 'dev', 'jobs', 'billing',
-    'press', 'media', 'general', 'partners', 'partner', 'clients', 'mail', 'help', 'customercare',
-    'contactus', 'reachus', 'office-admin', 'inbound', 'operations', 'editor', 'privacy', 'legal',
+    'press', 'media', 'general', 'partners', 'partner', 'mail', 'help', 'customercare',
+    'contactus', 'reachus', 'office-admin', 'operations', 'editor', 'privacy', 'legal',
     'security', 'feedback', 'compliance', 'careers', 'hr', 'apply', 'noreply', 'no-reply',
     'postmaster', 'hostmaster', 'webmaster', 'recruitment', 'accounting', 'invoice', 'desk',
     'info-de', 'info-fr', 'info-us', 'customer'
 }
 
-# Owner & C-Suite personal role prefixes - EXPLICITLY ALLOWED
+# Owner & C-Suite personal role prefixes - EXPLICITLY ALLOWED per user rule
 OWNER_ROLE_PREFIXES = {
     'founder', 'ceo', 'owner', 'partner', 'president', 'co-founder', 'cofounder',
-    'managing-director', 'principal', 'director'
+    'managing-director', 'managingdirector', 'md', 'principal', 'director',
+    'cto', 'technical-director', 'technicaldirector', 'head-of-operations', 'coo'
 }
 
 GENERIC_EMAIL_PREFIXES = STRICTLY_DISALLOWED_PREFIXES
@@ -95,9 +99,10 @@ GENERIC_EMAIL_PREFIXES = STRICTLY_DISALLOWED_PREFIXES
 def is_acceptable_lead_email(email: str, decision_maker_name: Optional[str] = None) -> Tuple[bool, str]:
     """
     User Policy: ONLY accept:
-    1. Owner / Decision Maker personal email (john@, ceo@, founder@, firstname.lastname@)
+    1. Owner / Decision Maker personal email (john@, ceo@, founder@, md@, firstname.lastname@)
+       Roles: Founder, Owner, CEO, Managing Director, Head of Operations, Technical Director
     2. hello@ (warm boutique inbox)
-    STRICTLY REJECT: info@, contact@, service@, support@, sales@, etc.
+    STRICTLY REJECT: info@, contact@, service@, support@, sales@, admin@, etc.
     """
     if not email or "@" not in email:
         return False, "invalid_format"
@@ -133,8 +138,8 @@ def extract_founder_name_from_text(text: str) -> Optional[str]:
     """Extracts founder/CEO/partner name from text using strict regex patterns."""
     patterns = [
         r"(?:founded by|co-founded by)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})",
-        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s*,\s*(?:founder|ceo|co-founder|president|owner|managing director)",
-        r"(?:founder & ceo|founder and ceo|ceo & founder|ceo|founder|owner)\s*[:\-–—]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})",
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s*,\s*(?:founder|ceo|co-founder|president|owner|managing director|head of operations|technical director|cto)",
+        r"(?:founder & ceo|founder and ceo|ceo & founder|ceo|founder|owner|managing director|technical director|head of operations)\s*[:\-–—]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})",
     ]
     for p in patterns:
         m = re.search(p, text, flags=re.IGNORECASE)
@@ -844,39 +849,35 @@ class WebsiteEnrichmentAgent:
 
         # ---------------- PHASE 4 (LAYER 2) & PHASE 5: AI BUSINESS VERIFIER & SUPERVISOR ----------------
         system_prompt = (
-            "You are an expert AI Business Verifier & Supervisor (The Real Judge) for custom web scraping and B2B lead pipeline services.\n"
+            "You are an expert AI Business Verifier & Supervisor (The Real Judge) for custom web scraping, data pipelines, and automation services.\n"
             "Analyze the multi-page website text and verified email found by Python.\n\n"
-            "STRICT ICP LOCK - B2B LEAD GENERATION & OUTBOUND SALES AGENCIES ONLY:\n"
-            "We ONLY accept agencies that sell: B2B Lead Generation, Cold Email Outreach, Appointment Setting, SDR-as-a-service, Outbound Sales Development, Demand Generation, or Account-Based Marketing (ABM).\n"
-            "REJECT IMMEDIATELY (Set is_verified_target=false and agency_type=non_icp):\n"
-            "- Local SEO, Organic SEO, or Search Engine Optimization agencies\n"
-            "- Web Design, Graphic Design, UX/UI, or Branding shops\n"
-            "- Social Media Management, Influencer Marketing, or PR agencies\n"
-            "- Direct B2C marketing firms\n\n"
+            "TARGET ICP — BUYERS OF CUSTOM WEB SCRAPING & AUTOMATED DATA PIPELINE SERVICES:\n"
+            "We accept businesses across 7 high-value data-dependent verticals:\n"
+            "1. E-commerce & Marketplace Agencies (Shopify, Amazon, DTC, Walmart - need competitor price & stock monitoring, MAP tracking, catalog sync).\n"
+            "2. SEO & Digital PR Agencies (Need automated SERP feeds, rank tracking, backlink discovery, automated site audits).\n"
+            "3. PPC & Paid Ads Agencies (Need competitor creative tracking, Google Shopping product feeds for dynamic bidding).\n"
+            "4. Recruitment & Executive Search Firms (Need real-time job board scraping, career page monitoring, candidate signal tracking).\n"
+            "5. Real Estate & PropTech Firms (Need property listing aggregation, price drop tracking, broker contacts).\n"
+            "6. Market Research & BI Consultancies (Need scheduled retail data, public sentiment, competitive price trends).\n"
+            "7. B2B Lead Gen & Outbound Sales Agencies (Need custom prospect lists, directory scraping, SDR list building).\n\n"
+            "REJECT IMMEDIATELY (Set is_verified_target=false, is_agency=false, agency_type=non_icp):\n"
+            "- Government portals, military, universities, schools, churches, charities, non-profits.\n"
+            "- Offline local consumer retail (hair salons, dental clinics, physical restaurants, plumbing, auto repair).\n"
+            "- Casinos, gambling, adult content, spam directories, parked domains.\n\n"
             "STRICT 4 CONDITIONS GATEKEEPER:\n"
-            "1. Real Business vs. Content/Directory Check: Genuine commercial business selling services (not directory, blog, or listicle).\n"
-            "2. Service Buying Need Verification: High ongoing demand for custom B2B prospect lists and web scraping.\n"
-            "3. Company Size Sweet Spot Check: Active boutique company (2 to 50 employees). Reject massive conglomerates.\n"
-            "4. Email-to-Business Matching: Verified email matches the agency's domain/brand.\n\n"
-            "GATEKEEPER RULE: If ALL 4 conditions pass AND it is a B2B Lead Gen / Outbound agency, set is_verified_target=true and target_verification_status='VERIFIED_TARGET (B2B Lead Gen)'.\n"
-            "If any condition fails or agency is not B2B Lead Gen, set is_verified_target=false, is_agency=false, agency_type=non_icp, and specify non_agency_reason.\n\n"
-            "AGENCY OPPORTUNITY DETECTION (Buying Likelihood for Custom Scraping & Data Pipelines):\n"
-            "Evaluate how urgently this agency needs our custom scraping & data pipeline service based on 5 indicators:\n"
-            "1. multi_client_leadgen (25 pts): Do they run outbound lead gen / SDR campaigns for multiple external B2B client accounts? (vs selling only for themselves)\n"
-            "2. cross_industry_prospecting (20 pts): Do they prospect across 2+ distinct industries (e.g. Healthcare, SaaS, Real Estate, Logistics), requiring custom prospect research for each niche?\n"
-            "3. custom_data_offering (20 pts): Do they explicitly offer custom list building, account research, directory scraping, or niche B2B contact lists?\n"
-            "4. has_research_team_signals (20 pts): Do they mention list builders, SDRs, prospect researchers, or face manual data sourcing labor bottlenecks?\n"
-            "5. recurring_data_need (15 pts): Do they run high-volume recurring outbound campaigns creating continuous demand for fresh verified data?\n"
-            "Calculate opportunity_score (0-100) by summing these points.\n"
-            "Set opportunity_tier ('CRITICAL ICP FIT' >=90, 'HIGH OPPORTUNITY' >=75, 'MODERATE OPPORTUNITY' >=55, 'LOW OPPORTUNITY' <55).\n"
-            "Provide opportunity_reasons: List 2-4 specific reasons and website evidence explaining why they are a prime buyer for custom scraping.\n\n"
-            "PHASE 5: DEEP BUSINESS SUMMARY & PERSONALIZATION (For passing targets):\n"
+            "1. Real Business vs. Content/Directory Check: Genuine commercial business selling services or software (not a directory or spam blog).\n"
+            "2. Service Buying Need Verification: High ongoing operational demand for external web data, scraping, or automated lead lists.\n"
+            "3. Company Size Sweet Spot Check: Active boutique to mid-market company (2 to 100 employees). Reject massive enterprise conglomerates.\n"
+            "4. Email-to-Business Matching: Verified email matches the company's domain/brand.\n\n"
+            "GATEKEEPER RULE: If ALL 4 conditions pass AND it belongs to any of the 7 data-dependent verticals, set is_verified_target=true and target_verification_status='VERIFIED_TARGET (<Vertical Name>)'.\n"
+            "If any condition fails, set is_verified_target=false, is_agency=false, agency_type=non_icp, and specify non_agency_reason.\n\n"
+            "PHASE 5: DEEP BUSINESS DOSSIER & BESPOKE COLD EMAIL (<75 words):\n"
             "- decision_maker_name & decision_maker_role from /about and /team pages.\n"
-            "- complete_business_summary: Detailed breakdown of what outbound services they sell and how their business operates.\n"
-            "- their_target_clients: Exactly who their customers are (e.g. MedSpas, SaaS, E-commerce, Real Estate, Local Businesses).\n"
-            "- service_need_explanation: Clear explanation of why they need custom web scraping or lead list building.\n"
-            "- personalization_guide: A specific note for a human sales rep on what exact case study, service, or client niche to mention from their site to sound deeply researched.\n"
-            "- ready_cold_email: Complete, high-converting cold email (120-180 words), plain-text, zero hyperlinks, zero placeholders/brackets, offering 25-50 free sample custom-scraped leads with a professional sign-off.\n\n"
+            "- complete_business_summary: What exact services/products they sell and their core business model.\n"
+            "- their_target_clients: Exactly who their customers are (e.g. DTC brands, SaaS founders, commercial real estate brokers).\n"
+            "- service_need_explanation: Specific operational reason why they urgently need custom web scraping or automated data feeds.\n"
+            "- personalization_guide: A concise outreach angle for a human sales rep mentioning their specific focus area.\n"
+            "- ready_cold_email: Complete, ready-to-send personalized cold email (UNDER 75 WORDS), plain-text, ZERO links, offering a free 50-record custom sample dataset with professional sign-off.\n\n"
             "STRICT OUTREACH GREETING RULES (ZERO HALLUCINATIONS):\n"
             "- If decision_maker_name is verified and contains a real human first name, start with 'Hi [First Name],'.\n"
             f"- If decision_maker_name is None, empty, or 'Not identified', start with 'Hi {initial_name} team,' or 'Hi there,'.\n"

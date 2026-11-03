@@ -65,6 +65,15 @@ async def capture_host_for_keep_alive(request: Request, call_next):
 def on_app_startup():
     keep_alive_engine.start()
     sheet_streamer.start()
+    if os.getenv("AUTONOMOUS_24_7_MODE", "false").lower() == "true":
+        import threading
+        from api.state import set_autonomous_continuous_mode
+        set_autonomous_continuous_mode(True)
+        threading.Thread(
+            target=start_background_campaign,
+            args=("Autonomous 24/7 Custom Web Scraping Data Buyer Harvest", 50000),
+            daemon=True
+        ).start()
 
 @app.on_event("shutdown")
 def on_app_shutdown():
@@ -282,6 +291,22 @@ def download_logs(kind: str = "scraper"):
 @app.post("/api/campaigns/start")
 def start_campaign_background(req: CampaignRequest):
     return start_background_campaign(req.prompt, target_count=req.target_count or 25)
+
+@app.post("/api/campaigns/autonomous/start")
+def start_autonomous_24_7(req: Optional[CampaignRequest] = None):
+    """Launches unbounded 24/7 continuous autonomous scraping loop across all directories."""
+    from api.state import set_autonomous_continuous_mode
+    set_autonomous_continuous_mode(True)
+    prompt = req.prompt if (req and req.prompt) else "Find buyers of custom web scraping, competitor price monitoring, and data pipeline services"
+    target = req.target_count if (req and req.target_count) else 50000
+    return start_background_campaign(prompt, target_count=target)
+
+@app.post("/api/campaigns/autonomous/stop")
+def stop_autonomous_24_7():
+    """Stops continuous 24/7 autonomous loop."""
+    from api.state import set_autonomous_continuous_mode
+    set_autonomous_continuous_mode(False)
+    return stop_background_campaign()
 
 @app.post("/api/campaigns/stop")
 def stop_campaign():

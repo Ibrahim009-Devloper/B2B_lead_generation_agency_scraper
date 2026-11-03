@@ -502,7 +502,8 @@ class MasterOrchestrator:
             force_garbage_collection()
 
         # Step 2: Continuous Goal-Seeking Multi-Batch Harvesting Loop
-        max_campaign_rounds = 35
+        # If target limit is large (>= 100) or unlimited, remove finite round cap for continuous 24/7 operation
+        max_campaign_rounds = 1000000 if limit >= 100 else max(35, limit * 3)
         round_idx = 0
         consecutive_empty_rounds = 0
 
@@ -564,8 +565,21 @@ class MasterOrchestrator:
             if not batch_candidates and not search_cands:
                 consecutive_empty_rounds += 1
                 if consecutive_empty_rounds >= 4:
-                    logger.info("Exhausted all available fresh directory pages and search footprints across all categories.")
-                    break
+                    if limit >= 100:
+                        logger.info("Reached end of current directory page offsets. Recycling pagination cursors to Page 1 for continuous 24/7 harvest...")
+                        if on_event:
+                            on_event("Master Orchestrator", "Recycling directory offsets to Page 1 for continuous 24/7 harvest cycle...")
+                        consecutive_empty_rounds = 0
+                        from core.pagination_state import pagination_manager
+                        for k in list(pagination_manager.get_all_state().keys()):
+                            pagination_manager.set_page(k, 1)
+                        # Clear transient in-memory seen domains set to allow recycled fresh passes (SQLite retains permanent deduplication)
+                        seen_domains.clear()
+                        import time
+                        time.sleep(30.0)
+                    else:
+                        logger.info("Exhausted all available fresh directory pages and search footprints across all categories.")
+                        break
             else:
                 consecutive_empty_rounds = 0
 

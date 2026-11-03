@@ -61,6 +61,9 @@ class DirectoryAdapter(SourceAdapter):
 
         categories = [
             ("designrush_lead_gen", "https://www.designrush.com/agency/digital-marketing/lead-generation"),
+            ("designrush_ecommerce", "https://www.designrush.com/agency/ecommerce-development"),
+            ("designrush_seo", "https://www.designrush.com/agency/search-engine-optimization"),
+            ("designrush_ppc", "https://www.designrush.com/agency/paid-media-pay-per-click"),
             ("designrush_telemarketing", "https://www.designrush.com/agency/call-centers/telemarketing"),
             ("designrush_b2b", "https://www.designrush.com/agency/digital-marketing/b2b")
         ]
@@ -159,13 +162,15 @@ class DirectoryAdapter(SourceAdapter):
 
         categories = [
             ("themanifest_lead_gen", "https://themanifest.com/lead-generation/companies"),
+            ("themanifest_seo", "https://themanifest.com/seo/agencies"),
+            ("themanifest_ppc", "https://themanifest.com/ppc/agencies"),
+            ("themanifest_staffing", "https://themanifest.com/staffing/agencies"),
+            ("themanifest_real_estate", "https://themanifest.com/real-estate/companies"),
+            ("themanifest_inbound", "https://themanifest.com/inbound-marketing/agencies"),
+            ("themanifest_digital_marketing", "https://themanifest.com/digital-marketing/agencies"),
             ("themanifest_sales_outsourcing", "https://themanifest.com/sales-outsourcing/companies"),
             ("themanifest_call_centers_outbound", "https://themanifest.com/call-centers/outbound/companies"),
-            ("themanifest_bpo_telemarketing", "https://themanifest.com/bpo/telemarketing/companies"),
-            ("themanifest_lead_gen_agencies", "https://themanifest.com/lead-generation/agencies"),
-            ("themanifest_sales_outsourcing_agencies", "https://themanifest.com/sales-outsourcing/agencies"),
-            ("themanifest_appointment_setting", "https://themanifest.com/appointment-setting/companies"),
-            ("themanifest_inbound_call_center", "https://themanifest.com/inbound-call-center/companies")
+            ("themanifest_bpo_telemarketing", "https://themanifest.com/bpo/telemarketing/companies")
         ]
 
         headers = {"Referer": "https://www.google.com/"}
@@ -328,12 +333,20 @@ class DirectoryAdapter(SourceAdapter):
         if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
             categories = [
                 ("goodfirms_lead_gen_usa", "https://www.goodfirms.co/bpo-services/lead-generation/usa"),
+                ("goodfirms_ecommerce", "https://www.goodfirms.co/ecommerce-development-companies"),
+                ("goodfirms_seo", "https://www.goodfirms.co/seo-agencies"),
+                ("goodfirms_ppc", "https://www.goodfirms.co/ppc-agencies"),
+                ("goodfirms_bigdata", "https://www.goodfirms.co/big-data-analytics"),
                 ("goodfirms_telemarketing_usa", "https://www.goodfirms.co/bpo-services/telemarketing/usa"),
                 ("goodfirms_lead_gen", "https://www.goodfirms.co/bpo-services/lead-generation"),
             ]
         else:
             categories = [
                 ("goodfirms_lead_gen", "https://www.goodfirms.co/bpo-services/lead-generation"),
+                ("goodfirms_ecommerce", "https://www.goodfirms.co/ecommerce-development-companies"),
+                ("goodfirms_seo", "https://www.goodfirms.co/seo-agencies"),
+                ("goodfirms_ppc", "https://www.goodfirms.co/ppc-agencies"),
+                ("goodfirms_bigdata", "https://www.goodfirms.co/big-data-analytics"),
                 ("goodfirms_lead_gen_usa", "https://www.goodfirms.co/bpo-services/lead-generation/usa"),
                 ("goodfirms_lead_gen_uk", "https://www.goodfirms.co/bpo-services/lead-generation/uk"),
                 ("goodfirms_telemarketing", "https://www.goodfirms.co/bpo-services/telemarketing"),
@@ -471,11 +484,17 @@ class DirectoryAdapter(SourceAdapter):
         if target_country and target_country.upper() in ("USA", "US", "UNITED STATES"):
             categories = [
                 ("sortlist_lead_gen_us", "https://www.sortlist.com/s/lead-generation/united-states-us"),
+                ("sortlist_ecommerce_us", "https://www.sortlist.com/s/e-commerce/united-states-us"),
+                ("sortlist_seo_us", "https://www.sortlist.com/s/search-engine-optimization-seo/united-states-us"),
+                ("sortlist_advertising_us", "https://www.sortlist.com/s/advertising/united-states-us"),
                 ("sortlist_prospecting_us", "https://www.sortlist.com/s/prospecting/united-states-us"),
             ]
         else:
             categories = [
                 ("sortlist_lead_gen", "https://www.sortlist.com/lead-generation"),
+                ("sortlist_ecommerce_us", "https://www.sortlist.com/s/e-commerce/united-states-us"),
+                ("sortlist_seo_us", "https://www.sortlist.com/s/search-engine-optimization-seo/united-states-us"),
+                ("sortlist_advertising_us", "https://www.sortlist.com/s/advertising/united-states-us"),
                 ("sortlist_prospecting", "https://www.sortlist.com/prospecting"),
                 ("sortlist_lead_gen_us", "https://www.sortlist.com/s/lead-generation/united-states-us"),
                 ("sortlist_lead_gen_gb", "https://www.sortlist.com/s/lead-generation/united-kingdom-gb"),
